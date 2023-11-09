@@ -1,0 +1,61 @@
+[package]
+description = "A system daemon for loading and running eBPF programs."
+name = "bpflet"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bpflet"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+aya = { workspace = true }
+base16ct = { workspace = true, features = ["alloc"] }
+base64 = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = [
+    "color",
+    "derive",
+    "help",
+    "std",
+    "suggestions",
+    "usage",
+] }
+bpflet-api = { workspace = true }
+caps = { workspace = true }
+comfy-table = { workspace = true, features = ["tty"] }
+env_logger = { workspace = true }
+flate2 = { workspace = true, features = ["zlib"] }
+hex = { workspace = true, features = ["std"] }
+log = { workspace = true }
+nix = { workspace = true, features = [
+    "fs",
+    "mount",
+    "net",
+    "resource",
+    "socket",
+    "user",
+] }
+oci-distribution = { workspace = true, default-features = false, features = [
+    "rustls-tls",
+    "trust-dns",
+] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+sha2 = { workspace = true }
+sigstore = { workspace = true, features = [
+    "cached-client",
+    "cosign-rustls-tls",
+    "tuf",
+] }
+sled = { workspace = true }
+systemd-journal-logger = { workspace = true }
+thiserror = { workspace = true }
+tar = { workspace = true }
+tokio = { workspace = true, features = ["full", "signal"] }
+tokio-stream = { workspace = true, features = ["net"] }
+tonic = { workspace = true, features = ["transport"] }
+tower = { workspace = true }
+url = { workspace = true }
