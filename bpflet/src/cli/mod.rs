@@ -6,11 +6,12 @@ mod table;
 mod unload;
 mod get;
 mod list;
+mod helper;
 
 use args::Commands;
 use bpflet_api::{
     config::Config,
-    util::directories::{CFGPATH_BPFLET_CONFIG, RTPATH_BPFLET_SOCKET},
+    constants::directories::{CFGPATH_BPFLET_CONFIG, RTPATH_BPFLET_SOCKET},
 };
 use log::warn;
 use std::fs;
@@ -35,6 +36,7 @@ impl Commands {
             Commands::Unload(args) => unload::execute_unload(args),
             Commands::Get(args) => get::execute_get(args),
             Commands::List(args) => list::execute_list(args),
+            Commands::Image(i) => i.execute(),
             Commands::System(s) => s.execute(&config),
         }
     }

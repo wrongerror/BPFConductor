@@ -28,8 +28,11 @@ caps = { workspace = true }
 comfy-table = { workspace = true, features = ["tty"] }
 env_logger = { workspace = true }
 flate2 = { workspace = true, features = ["zlib"] }
+futures = { workspace = true }
 hex = { workspace = true, features = ["std"] }
+lazy_static = { workspace = true }
 log = { workspace = true }
+netlink-packet-route = { workspace = true }
 nix = { workspace = true, features = [
     "fs",
     "mount",
@@ -59,5 +62,5 @@ tokio-stream = { workspace = true, features = ["net"] }
 tonic = { workspace = true, features = ["transport"] }
 tower = { workspace = true }
 url = { workspace = true }
-rand = { version = "0.8.5", features = [] }
-lazy_static = "1.4.0"
+rand = { workspace = true }
+rtnetlink = { workspace = true, features = ["tokio_socket"] }

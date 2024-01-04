@@ -1,6 +1,7 @@
 use clap::Parser;
 use lazy_static::lazy_static;
 use sled::{Config, Db};
+use bpflet_api::constants::directories::STDIR_DB;
 
 mod cli;
 mod command;
@@ -9,15 +10,16 @@ mod handler;
 mod manager;
 mod oci;
 mod serve;
-mod utils;
+mod helper;
+mod dispatcher;
 
 const BPFLET_ENV_LOG_LEVEL: &str = "RUST_LOG";
 
 lazy_static! {
     pub static ref BPFLET_DB: Db = Config::default()
-        .temporary(true)
+        .path(STDIR_DB)
         .open()
-        .expect("Unable to open temporary root database");
+        .expect("Unable to open bpflet database");
 }
 
 fn main() -> anyhow::Result<()> {

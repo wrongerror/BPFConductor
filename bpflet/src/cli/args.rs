@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand};
-use hex::FromHex;
 use bpflet_api::ProgramType;
+
+use crate::cli::helper::{parse_key_val, parse_global_arg};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -27,6 +28,10 @@ pub(crate) enum Commands {
     /// Get an eBPF program via program id.
     /// Example: bpflet get 220
     Get(GetArgs),
+
+    /// eBPF Bytecode Image related commands.
+    #[command(subcommand)]
+    Image(ImageSubCommand),
 
     /// Run bpflet as a service.
     /// Example: bpflet system start
@@ -59,7 +64,7 @@ pub(crate) struct LoadFileArgs {
     /// This is a very low level primitive. The caller is responsible for formatting
     /// the byte string appropriately considering such things as size, endianness,
     /// alignment and packing of data structures.
-    #[clap(short, long, verbatim_doc_comment, num_args(1..), value_parser=parse_global_arg)]
+    #[clap(short, long, verbatim_doc_comment, num_args(1..), value_parser = parse_global_arg)]
     pub(crate) global: Option<Vec<GlobalArg>>,
 
     /// Optional: Specify Key/Value metadata to be attached to a program when it
@@ -69,7 +74,7 @@ pub(crate) struct LoadFileArgs {
     /// This can later be used to `list` a certain subset of programs which contain
     /// the specified metadata.
     /// Example: --metadata owner=acme
-    #[clap(short, long, verbatim_doc_comment, value_parser=parse_key_val, value_delimiter = ',')]
+    #[clap(short, long, verbatim_doc_comment, value_parser = parse_key_val, value_delimiter = ',')]
     pub(crate) metadata: Option<Vec<(String, String)>>,
 
     /// Optional: Program id of loaded eBPF program this eBPF program will share a map with.
@@ -99,7 +104,7 @@ pub(crate) struct LoadImageArgs {
     /// This is a very low level primitive. The caller is responsible for formatting
     /// the byte string appropriately considering such things as size, endianness,
     /// alignment and packing of data structures.
-    #[clap(short, long, verbatim_doc_comment, num_args(1..), value_parser=parse_global_arg)]
+    #[clap(short, long, verbatim_doc_comment, num_args(1..), value_parser = parse_global_arg)]
     pub(crate) global: Option<Vec<GlobalArg>>,
 
     /// Optional: Specify Key/Value metadata to be attached to a program when it
@@ -109,7 +114,7 @@ pub(crate) struct LoadImageArgs {
     /// This can later be used to list a certain subset of programs which contain
     /// the specified metadata.
     /// Example: --metadata owner=acme
-    #[clap(short, long, verbatim_doc_comment, value_parser=parse_key_val, value_delimiter = ',')]
+    #[clap(short, long, verbatim_doc_comment, value_parser = parse_key_val, value_delimiter = ',')]
     pub(crate) metadata: Option<Vec<(String, String)>>,
 
     /// Optional: Program id of loaded eBPF program this eBPF program will share a map with.
@@ -269,7 +274,7 @@ pub(crate) struct ListArgs {
     /// Format: <KEY>=<VALUE>
     ///
     /// Example: --metadata-selector owner=acme
-    #[clap(short, long, verbatim_doc_comment, value_parser=parse_key_val, value_delimiter = ',')]
+    #[clap(short, long, verbatim_doc_comment, value_parser = parse_key_val, value_delimiter = ',')]
     pub(crate) metadata_selector: Option<Vec<(String, String)>>,
 
     /// Optional: List all programs.
@@ -292,7 +297,7 @@ pub(crate) enum ImageSubCommand {
 #[derive(Args, Debug)]
 pub(crate) struct PullBytecodeArgs {
     /// Required: Container Image URL.
-    /// Example: --image-url quay.io/bpflet-bytecode/xdp_pass:latest
+    /// Example: --image-url quay.io/bpfman-bytecode/xdp_pass:latest
     #[clap(short, long, verbatim_doc_comment)]
     pub(crate) image_url: String,
 
@@ -314,26 +319,4 @@ pub(crate) struct PullBytecodeArgs {
 #[derive(Subcommand, Debug)]
 pub(crate) enum SystemSubcommand {
     Start,
-}
-
-pub(crate) fn parse_key_val(s: &str) -> Result<(String, String), std::io::Error> {
-    let pos = s.find('=').ok_or(std::io::ErrorKind::InvalidInput)?;
-    Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
-}
-
-pub(crate) fn parse_global_arg(global_arg: &str) -> Result<GlobalArg, std::io::Error> {
-    let mut parts = global_arg.split('=');
-
-    let name_str = parts.next().ok_or(std::io::ErrorKind::InvalidInput)?;
-
-    let value_str = parts.next().ok_or(std::io::ErrorKind::InvalidInput)?;
-    let value = Vec::<u8>::from_hex(value_str).map_err(|_e| std::io::ErrorKind::InvalidInput)?;
-    if value.is_empty() {
-        return Err(std::io::ErrorKind::InvalidInput.into());
-    }
-
-    Ok(GlobalArg {
-        name: name_str.to_string(),
-        value,
-    })
 }

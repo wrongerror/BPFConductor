@@ -1,7 +1,5 @@
-
-
 pub(crate) mod cosign;
-pub(crate) mod image_manager;
+pub(crate) mod manager;
 
 use thiserror::Error;
 

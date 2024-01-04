@@ -3,13 +3,8 @@ use std::{os::unix::process::CommandExt, path::PathBuf, process::Command};
 use anyhow::Context as _;
 use clap::Parser;
 
-use crate::build_ebpf::{build_ebpf, Architecture, Options as BuildOptions};
-
 #[derive(Debug, Parser)]
 pub struct Options {
-    /// Optional: Set the endianness of the BPF target
-    #[clap(default_value = "bpfel-unknown-none", long)]
-    pub bpf_target: Architecture,
     /// Optional: Build and run the release target
     #[clap(long)]
     pub release: bool,
@@ -43,16 +38,6 @@ fn build(opts: &Options) -> Result<(), anyhow::Error> {
 
 /// Build and run the project
 pub fn run(opts: Options) -> Result<(), anyhow::Error> {
-    // build our ebpf program followed by our application
-    build_ebpf(BuildOptions {
-        target: opts.bpf_target,
-        release: opts.release,
-        compile_rust_ebpf: opts.compile_rust_ebpf,
-        libbpf_dir: PathBuf::from(&opts.libbpf_dir),
-    })
-    .context("Error while building BPF program")?;
-    build(&opts).context("Error while building userspace application")?;
-
     // profile we are building (release or debug)
     let profile = if opts.release { "release" } else { "debug" };
     let bin_path = format!("target/{profile}/bpflet");

@@ -17,7 +17,7 @@ use systemd_journal_logger::{connected_to_journal, JournalLog};
 use crate::{
     cli::args::{SystemSubcommand},
     serve::serve,
-    utils::{create_bpffs, set_dir_permissions},
+    helper::{create_bpffs, set_dir_permissions},
     BPFLET_ENV_LOG_LEVEL,
 };
 
@@ -55,7 +55,7 @@ pub(crate) fn execute_service(config: &Config) -> anyhow::Result<()> {
             setrlimit(Resource::RLIMIT_MEMLOCK, RLIM_INFINITY, RLIM_INFINITY).unwrap();
 
             // Create directories associated with bpflet
-            use bpflet_api::util::directories::*;
+            use bpflet_api::constants::directories::*;
             create_dir_all(RTDIR).context("unable to create runtime directory")?;
             create_dir_all(RTDIR_FS).context("unable to create mountpoint")?;
             create_dir_all(RTDIR_TC_INGRESS_DISPATCHER)

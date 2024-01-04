@@ -22,9 +22,11 @@ clap = { version = "4", default-features = false }
 comfy-table = { version = "7.1.0", default-features = false }
 env_logger = { version = "0.10", default-features = false }
 flate2 = { version = "1.0", default-features = false }
+futures = { version = "0.3.30", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 lazy_static = { version = "1", default-features = false }
 log = { version = "0.4", default-features = false }
+netlink-packet-route = { version = "0.17.1", default-features = false }
 nix = { version = "0.27", default-features = false }
 oci-distribution = { version = "0.10.0", default-features = false }
 prost = { version = "0.12.3", default-features = false }
@@ -34,7 +36,10 @@ serde_json = { version = "1", default-features = false }
 sha2 = { version = "0.10.8", default-features = false }
 sigstore = { version = "0.7.2", default-features = false }
 sled = { version = "0.34.7", default-features = false }
-thiserror = { version = "1", default-features = false }
+thiserror = { version = "1", default-features = false}
+rand = { version = "0.8", default-features = false }
+regex = { version = "1.9.6", default-features = false }
+rtnetlink = { version = "0.13.1", default-features = false }
 systemd-journal-logger = { version = "1.0.0", default-features = false }
 tar = { version = "0.4", default-features = false }
 tokio = { version = "1.33.0", default-features = false }

@@ -1,5 +1,5 @@
 pub mod config;
-pub mod util;
+pub mod constants;
 #[path = "bpflet.v1.rs"]
 #[rustfmt::skip]
 #[allow(clippy::all)]

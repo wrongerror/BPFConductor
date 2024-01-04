@@ -1,6 +1,5 @@
 use std::{fs::remove_file, path::Path};
 use log::{debug, info};
-use sled::Config as DbConfig;
 use tokio::{
     join,
     net::UnixListener,
@@ -14,15 +13,15 @@ use tonic::transport::Server;
 
 use bpflet_api::{
     config::Config,
-    util::directories::{RTPATH_BPFLET_SOCKET, STDIR_DB},
+    constants::directories::RTPATH_BPFLET_SOCKET,
     v1::{
         bpflet_server::BpfletServer
     }
 };
 
-use crate::{handler::ProgHandler, manager};
-use crate::oci::image_manager::ImageManager;
-use crate::utils::{set_file_permissions, SOCK_MODE};
+use crate::{BPFLET_DB, handler::ProgHandler, manager};
+use crate::oci::manager::ImageManager;
+use crate::helper::{set_file_permissions, SOCK_MODE};
 
 
 pub async fn serve(
@@ -38,23 +37,24 @@ pub async fn serve(
 
     let allow_unsigned = config.signing.as_ref().map_or(true, |s| s.allow_unsigned);
     let (itx, irx) = mpsc::channel(32);
-    let database = DbConfig::default()
-        .path(STDIR_DB)
-        .open()
-        .expect("Unable to open database");
-    let mut image_manager = ImageManager::new(database.clone(), allow_unsigned, irx).await?;
+
+    let mut image_manager = ImageManager::new(BPFLET_DB.clone(), allow_unsigned, irx).await?;
     let image_manager_handle = tokio::spawn(async move {
         image_manager.run().await;
     });
 
-    let mut bpf_manager = manager::BpfManager::new(config.clone(), rx, itx, database);
+    let mut bpf_manager = manager::BpfManager::new(config.clone(), rx, itx);
     bpf_manager.rebuild_state().await?;
 
-    join!(
+    let (_, img_res, _) = join!(
         join_listeners(listeners),
         image_manager_handle,
         bpf_manager.run()
     );
+
+    if let Some(e) = img_res.err() {
+        return Err(e.into());
+    }
 
     Ok(())
 }

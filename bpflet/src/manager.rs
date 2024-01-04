@@ -3,6 +3,7 @@ use std::{
     convert::TryInto,
     path::{Path, PathBuf},
 };
+use anyhow::anyhow;
 
 use aya::{
     programs::{
@@ -13,12 +14,11 @@ use aya::{
 };
 use bpflet_api::{
     config::Config,
-    util::directories::*,
+    constants::directories::*,
     ProbeType::{self, *},
     ProgramType,
 };
 use log::{debug, info};
-use sled::Db;
 use tokio::{
     fs::{create_dir_all, remove_dir_all},
     select,
@@ -27,23 +27,31 @@ use tokio::{
         oneshot,
     },
 };
+use tokio::fs::read_dir;
 
-use crate::{command::{
-    BpfMap, Command, Direction,
-    Program, PullBytecodeArgs, UnloadArgs,
-}, errors::BpfletError, oci::image_manager::Command as ImageManagerCommand, BPFLET_DB, serve::shutdown_handler, utils::{get_ifindex, set_dir_permissions, should_map_be_pinned}};
-use crate::command::ProgramData;
-use crate::utils::bytes_to_string;
+use crate::{
+    command::{
+        BpfMap, Command, Direction,
+        Direction::{Egress, Ingress},
+        Program, ProgramData, PullBytecodeArgs, UnloadArgs,
+    },
+    dispatcher::{Dispatcher, DispatcherId, DispatcherInfo, TcDispatcher, XdpDispatcher},
+    errors::BpfletError,
+    oci::manager::Command as ImageManagerCommand,
+    BPFLET_DB,
+    serve::shutdown_handler,
+    helper::{bytes_to_string, get_ifindex, set_dir_permissions, should_map_be_pinned},
+};
 
 const MAPS_MODE: u32 = 0o0660;
 
 pub(crate) struct BpfManager {
     config: Config,
+    dispatchers: DispatcherMap,
     programs: ProgramMap,
     maps: HashMap<u32, BpfMap>,
     commands: Receiver<Command>,
     image_manager: Sender<ImageManagerCommand>,
-    _database: Db,
 }
 
 pub(crate) struct ProgramMap {
@@ -86,11 +94,11 @@ impl ProgramMap {
         })
     }
 
-    // Sets the positions of programs that are to be attached via a dispatcher.
+    // Adds a new program and sets the positions of programs that are to be attached via a dispatcher.
     // Positions are set based on order of priority. Ties are broken based on:
     // - Already attached programs are preferred
     // - Program name. Lowest lexical order wins.
-    fn set_program_positions(&mut self, program: &mut Program, is_add: bool) {
+    fn add_and_set_program_positions(&mut self, program: &mut Program) {
         let program_type = program.kind();
         let if_index = program.if_index().unwrap();
         let direction = program.direction().unwrap();
@@ -105,10 +113,8 @@ impl ProgramMap {
             })
             .collect::<Vec<&mut Program>>();
 
-        if is_add {
-            // add program we're loading
-            extensions.push(program);
-        }
+        // add program we're loading
+        extensions.push(program);
 
         extensions.sort_by_key(|b| {
             (
@@ -118,7 +124,39 @@ impl ProgramMap {
             )
         });
         for (i, v) in extensions.iter_mut().enumerate() {
-            v.set_position(i);
+            v.set_position(i).expect("unable to set program position");
+        }
+    }
+
+    // Sets the positions of programs that are to be attached via a dispatcher.
+    // Positions are set based on order of priority. Ties are broken based on:
+    // - Already attached programs are preferred
+    // - Program name. Lowest lexical order wins.
+    fn set_program_positions(
+        &mut self,
+        program_type: ProgramType,
+        if_index: u32,
+        direction: Option<Direction>,
+    ) {
+        let mut extensions = self
+            .programs
+            .values_mut()
+            .filter(|p| {
+                p.kind() == program_type
+                    && p.if_index().unwrap() == Some(if_index)
+                    && p.direction().unwrap() == direction
+            })
+            .collect::<Vec<&mut Program>>();
+
+        extensions.sort_by_key(|b| {
+            (
+                b.priority().unwrap(),
+                b.attached(),
+                b.get_data().get_name().unwrap().to_owned(),
+            )
+        });
+        for (i, v) in extensions.iter_mut().enumerate() {
+            v.set_position(i).expect("unable to set program position");
         }
     }
 
@@ -130,20 +168,50 @@ impl ProgramMap {
 }
 
 
+pub(crate) struct DispatcherMap {
+    dispatchers: HashMap<DispatcherId, Dispatcher>,
+}
+
+impl DispatcherMap {
+    fn new() -> Self {
+        DispatcherMap {
+            dispatchers: HashMap::new(),
+        }
+    }
+
+    fn remove(&mut self, id: &DispatcherId) -> Option<Dispatcher> {
+        self.dispatchers.remove(id)
+    }
+
+    fn insert(&mut self, id: DispatcherId, dis: Dispatcher) -> Option<Dispatcher> {
+        self.dispatchers.insert(id, dis)
+    }
+
+    /// Returns the number of extension programs currently attached to the dispatcher that
+    /// would be used to attach the provided [`Program`].
+    fn attached_programs(&self, did: &DispatcherId) -> usize {
+        if let Some(d) = self.dispatchers.get(did) {
+            d.num_extensions()
+        } else {
+            0
+        }
+    }
+}
+
+
 impl BpfManager {
     pub(crate) fn new(
         config: Config,
         commands: Receiver<Command>,
         image_manager: Sender<ImageManagerCommand>,
-        database: Db,
     ) -> Self {
         Self {
             config,
+            dispatchers: DispatcherMap::new(),
             programs: ProgramMap::new(),
             maps: HashMap::new(),
             commands,
             image_manager,
-            _database: database,
         }
     }
 
@@ -185,6 +253,62 @@ impl BpfManager {
             }
         }
 
+        self.rebuild_dispatcher_state(ProgramType::Xdp, None, RTDIR_XDP_DISPATCHER)
+            .await?;
+        self.rebuild_dispatcher_state(ProgramType::Tc, Some(Ingress), RTDIR_TC_INGRESS_DISPATCHER)
+            .await?;
+        self.rebuild_dispatcher_state(ProgramType::Tc, Some(Egress), RTDIR_TC_EGRESS_DISPATCHER)
+            .await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn rebuild_dispatcher_state(
+        &mut self,
+        program_type: ProgramType,
+        direction: Option<Direction>,
+        path: &str,
+    ) -> Result<(), anyhow::Error> {
+        let mut dispatcher_dir = read_dir(path).await?;
+        while let Some(entry) = dispatcher_dir.next_entry().await? {
+            let name = entry.file_name();
+            let parts: Vec<&str> = name.to_str().unwrap().split('_').collect();
+            if parts.len() != 2 {
+                continue;
+            }
+            let if_index: u32 = parts[0].parse().unwrap();
+            let revision: u32 = parts[1].parse().unwrap();
+            match program_type {
+                ProgramType::Xdp => {
+                    let dispatcher = XdpDispatcher::load(if_index, revision).unwrap();
+                    self.dispatchers.insert(
+                        DispatcherId::Xdp(DispatcherInfo(if_index, None)),
+                        Dispatcher::Xdp(dispatcher),
+                    );
+                }
+                ProgramType::Tc => {
+                    let direction = direction.expect("direction required for tc programs");
+
+                    let dispatcher = TcDispatcher::load(if_index, direction, revision).unwrap();
+                    let did = DispatcherId::Tc(DispatcherInfo(if_index, Some(direction)));
+
+                    self.dispatchers.insert(
+                        DispatcherId::Tc(DispatcherInfo(if_index, Some(direction))),
+                        Dispatcher::Tc(dispatcher),
+                    );
+
+                    self.rebuild_multiattach_dispatcher(
+                        did,
+                        if_index,
+                        ProgramType::Tc,
+                        Some(direction),
+                    )
+                        .await?;
+                }
+                _ => return Err(anyhow!("invalid program type {:?}", program_type)),
+            }
+        }
+
         Ok(())
     }
 
@@ -206,10 +330,8 @@ impl BpfManager {
 
         let result = match program {
             Program::Xdp(_) | Program::Tc(_) => {
-                program.set_if_index(get_ifindex(&program.if_name().unwrap())?);
-
-                // self.add_multi_attach_program(&mut program).await
-                self.add_single_attach_program(&mut program).await
+                program.set_if_index(get_ifindex(&program.if_name().unwrap())?)?;
+                self.add_multi_attach_program(&mut program).await
             }
             Program::Tracepoint(_) | Program::Kprobe(_) | Program::Uprobe(_) => {
                 self.add_single_attach_program(&mut program).await
@@ -232,6 +354,10 @@ impl BpfManager {
                 // and allow access to all maps by Bpflet group members.
                 self.save_map(&mut program, id, map_owner_id).await?;
 
+                // Swap the db tree to be persisted with the unique program ID generated
+                // by the kernel.
+                program.get_data_mut().swap_tree(id)?;
+
                 // Only add program to bpfManager if we've completed all mutations and it's successfully loaded.
                 self.programs.insert(id, program.to_owned());
 
@@ -247,6 +373,89 @@ impl BpfManager {
                 Err(e)
             }
         }
+    }
+
+    pub(crate) async fn add_multi_attach_program(
+        &mut self,
+        program: &mut Program,
+    ) -> Result<u32, BpfletError> {
+        debug!("BpfManager::add_multi_attach_program()");
+        let name = &program.get_data().get_name()?;
+
+        // This load is just to verify the BPF Function Name is valid.
+        // The actual load is performed in the XDP or TC logic.
+        // don't pin maps here.
+        let mut ext_loader = BpfLoader::new()
+            .allow_unsupported_maps()
+            .extension(name)
+            .load(program.get_data().program_bytes())?;
+
+        match ext_loader.program_mut(name) {
+            Some(_) => Ok(()),
+            None => Err(BpfletError::BpfFunctionNameNotValid(name.to_owned())),
+        }?;
+
+        let did = program
+            .dispatcher_id()?
+            .ok_or(BpfletError::DispatcherNotRequired)?;
+
+        let next_available_id = self.dispatchers.attached_programs(&did);
+        if next_available_id >= 10 {
+            return Err(BpfletError::TooManyPrograms);
+        }
+
+        debug!("next_available_id={next_available_id}");
+
+        let program_type = program.kind();
+        let if_index = program.if_index()?;
+        let if_name = program.if_name().unwrap().to_string();
+        let direction = program.direction()?;
+
+        self.programs.add_and_set_program_positions(program);
+
+        let mut programs: Vec<&mut Program> = self
+            .programs
+            .programs_mut(&program_type, &if_index, &direction)
+            .collect::<Vec<&mut Program>>();
+
+        // add the program that's being loaded
+        programs.push(program);
+
+        let old_dispatcher = self.dispatchers.remove(&did);
+        let if_config = if let Some(ref i) = self.config.interfaces {
+            i.get(&if_name)
+        } else {
+            None
+        };
+        let next_revision = if let Some(ref old) = old_dispatcher {
+            old.next_revision()
+        } else {
+            1
+        };
+
+        let dispatcher = Dispatcher::new(
+            if_config,
+            &mut programs,
+            next_revision,
+            old_dispatcher,
+            self.image_manager.clone(),
+        )
+            .await
+            .or_else(|e| {
+                // If kernel ID was never set there's no pins to cleanup here so just continue
+                if program.get_data().get_id().is_ok() {
+                    program
+                        .delete()
+                        .map_err(BpfletError::BpfletProgramDeleteError)?;
+                }
+                Err(e)
+            })?;
+
+        self.dispatchers.insert(did, dispatcher);
+        let id = program.get_data().get_id()?;
+        program.set_attached();
+
+        Ok(id)
     }
 
     pub(crate) async fn add_single_attach_program(
@@ -293,7 +502,7 @@ impl BpfManager {
                 let tracepoint: &mut TracePoint = raw_program.try_into()?;
 
                 tracepoint.load()?;
-                program
+                let _ = program
                     .get_data_mut()
                     .set_kernel_info(&tracepoint.info()?);
 
@@ -491,7 +700,7 @@ impl BpfManager {
 
     pub(crate) async fn remove_program(&mut self, id: u32) -> Result<(), BpfletError> {
         info!("Removing program with id: {id}");
-        let prog = match self.programs.remove(&id) {
+        let mut prog = match self.programs.remove(&id) {
             Some(p) => p,
             None => {
                 return Err(BpfletError::Error(format!(
@@ -504,8 +713,7 @@ impl BpfManager {
         let map_owner_id = prog.get_data().get_map_owner_id()?;
 
         match prog {
-            // Program::Xdp(_) | Program::Tc(_) => self.remove_multi_attach_program(&mut prog).await?,
-            Program::Xdp(_) | Program::Tc(_) => (),
+            Program::Xdp(_) | Program::Tc(_) => self.remove_multi_attach_program(&mut prog).await?,
             Program::Tracepoint(_)
             | Program::Kprobe(_)
             | Program::Uprobe(_)
@@ -520,11 +728,130 @@ impl BpfManager {
         Ok(())
     }
 
+    pub(crate) async fn remove_multi_attach_program(
+        &mut self,
+        program: &mut Program,
+    ) -> Result<(), BpfletError> {
+        debug!("BpfManager::remove_multi_attach_program()");
+
+        let did = program
+            .dispatcher_id()?
+            .ok_or(BpfletError::DispatcherNotRequired)?;
+
+        let next_available_id = self.dispatchers.attached_programs(&did) - 1;
+        debug!("next_available_id = {next_available_id}");
+
+        let mut old_dispatcher = self.dispatchers.remove(&did);
+
+        if let Some(ref mut old) = old_dispatcher {
+            if next_available_id == 0 {
+                // Delete the dispatcher
+                return old.delete(true);
+            }
+        }
+
+        self.programs.set_program_positions(
+            program.kind(),
+            program.if_index()?.unwrap(),
+            program.direction()?,
+        );
+
+        let program_type = program.kind();
+        let if_index = program.if_index()?;
+        let if_name = program.if_name().unwrap();
+        let direction = program.direction()?;
+
+        // Intentionally don't add filter program here
+        let mut programs: Vec<&mut Program> = self
+            .programs
+            .programs_mut(&program_type, &if_index, &direction)
+            .collect();
+
+        let if_config = if let Some(ref i) = self.config.interfaces {
+            i.get(&if_name)
+        } else {
+            None
+        };
+        let next_revision = if let Some(ref old) = old_dispatcher {
+            old.next_revision()
+        } else {
+            1
+        };
+        debug!("next_revision = {next_revision}");
+        let dispatcher = Dispatcher::new(
+            if_config,
+            &mut programs,
+            next_revision,
+            old_dispatcher,
+            self.image_manager.clone(),
+        )
+            .await?;
+        self.dispatchers.insert(did, dispatcher);
+        Ok(())
+    }
+
+    pub(crate) async fn rebuild_multiattach_dispatcher(
+        &mut self,
+        did: DispatcherId,
+        if_index: u32,
+        program_type: ProgramType,
+        direction: Option<Direction>,
+    ) -> Result<(), BpfletError> {
+        debug!("BpfManager::rebuild_multiattach_dispatcher() for program type {program_type} on if_index {if_index:?}");
+        let mut old_dispatcher = self.dispatchers.remove(&did);
+
+        if let Some(ref mut old) = old_dispatcher {
+            debug!("Rebuild Multiattach Dispatcher for {did:?}");
+            self.programs
+                .set_program_positions(program_type, if_index, direction);
+            let if_index = Some(if_index);
+            let mut programs: Vec<&mut Program> = self
+                .programs
+                .programs_mut(&program_type, &if_index, &direction)
+                .collect();
+
+            debug!("programs loaded: {}", programs.len());
+
+            // The following checks should have been done when the dispatcher was built, but check again to confirm
+            if programs.is_empty() {
+                return old.delete(true);
+            } else if programs.len() > 10 {
+                return Err(BpfletError::TooManyPrograms);
+            }
+
+            let if_name = old.if_name();
+            let if_config = if let Some(ref i) = self.config.interfaces {
+                i.get(&if_name)
+            } else {
+                None
+            };
+
+            let next_revision = if let Some(ref old) = old_dispatcher {
+                old.next_revision()
+            } else {
+                1
+            };
+
+            let dispatcher = Dispatcher::new(
+                if_config,
+                &mut programs,
+                next_revision,
+                old_dispatcher,
+                self.image_manager.clone(),
+            )
+                .await?;
+            self.dispatchers.insert(did, dispatcher);
+        } else {
+            debug!("No dispatcher found in rebuild_multiattach_dispatcher() for {did:?}");
+        }
+        Ok(())
+    }
+
     pub(crate) fn list_programs(&mut self) -> Result<Vec<Program>, BpfletError> {
         debug!("BpfManager::list_programs()");
 
-        // Get an iterator for the bpfman load programs, a hash map indexed by program id.
-        let mut bpfman_progs: HashMap<u32, &Program> = self.programs.get_programs_iter().collect();
+        // Get an iterator for the bpflet load programs, a hash map indexed by program id.
+        let mut bpflet_progs: HashMap<u32, &Program> = self.programs.get_programs_iter().collect();
 
         // Call Aya to get ALL the loaded eBPF programs, and loop through each one.
         loaded_programs()
@@ -532,9 +859,9 @@ impl BpfManager {
                 let prog = p.map_err(BpfletError::BpfProgramError)?;
                 let prog_id = prog.id();
 
-                // If the program was loaded by bpfman (check the hash map), then use it.
+                // If the program was loaded by bpflet (check the hash map), then use it.
                 // Otherwise, convert the data returned from Aya into an Unsupported Program Object.
-                match bpfman_progs.remove(&prog_id) {
+                match bpflet_progs.remove(&prog_id) {
                     Some(p) => Ok(p.to_owned()),
                     None => {
                         let db_tree = BPFLET_DB
@@ -553,7 +880,7 @@ impl BpfManager {
 
     pub(crate) fn get_program(&mut self, id: u32) -> Result<Program, BpfletError> {
         debug!("Getting program with id: {id}");
-        // If the program was loaded by bpfman, then use it.
+        // If the program was loaded by bpflet, then use it.
         // Otherwise, call Aya to get ALL the loaded eBPF programs, and convert the data
         // returned from Aya into an Unsupported Program Object.
         match self.programs.get(&id) {
@@ -611,7 +938,7 @@ impl BpfManager {
                 biased;
                 _ = shutdown_handler() => {
                     info!("Signal received to stop command processing");
-                    self._database.flush().expect("Unable to flush database to disk before shutting down BpfManager");
+                    BPFLET_DB.flush().expect("Unable to flush database to disk before shutting down BpfManager");
                     break;
                 }
                 Some(cmd) = self.commands.recv() => {

@@ -11,7 +11,7 @@ use bpflet_api::{
 use tokio::sync::{mpsc::Sender, oneshot};
 use tonic::{Request, Response, Status};
 use bpflet_api::v1::list_response::ListResult;
-use crate::command::{Command, LoadArgs, Program, ProgramData, XdpProgram, TcProgram, TracepointProgram, KprobeProgram, UprobeProgram, UnloadArgs, GetArgs};
+use crate::command::{Command, LoadArgs, Program, ProgramData, XdpProgram, TcProgram, TracepointProgram, KprobeProgram, UprobeProgram, UnloadArgs, GetArgs, PullBytecodeArgs};
 
 #[derive(Debug)]
 pub struct ProgHandler {
@@ -219,31 +219,31 @@ impl Bpflet for ProgHandler {
                             }
                         } else {
                             // Filter on the input metadata field if provided
-                            // let mut meta_match = true;
-                            // for (key, value) in &request.get_ref().match_metadata {
-                            //     if let Some(v) = r
-                            //         .get_data()
-                            //         .get_metadata()
-                            //         .map_err(|e| {
-                            //             Status::aborted(format!(
-                            //                 "failed to get program metadata: {e}"
-                            //             ))
-                            //         })?
-                            //         .get(key)
-                            //     {
-                            //         if *value != *v {
-                            //             meta_match = false;
-                            //             break;
-                            //         }
-                            //     } else {
-                            //         meta_match = false;
-                            //         break;
-                            //     }
-                            // }
+                            let mut meta_match = true;
+                            for (key, value) in &request.get_ref().match_metadata {
+                                if let Some(v) = r
+                                    .get_data()
+                                    .get_metadata()
+                                    .map_err(|e| {
+                                        Status::aborted(format!(
+                                            "failed to get program metadata: {e}"
+                                        ))
+                                    })?
+                                    .get(key)
+                                {
+                                    if *value != *v {
+                                        meta_match = false;
+                                        break;
+                                    }
+                                } else {
+                                    meta_match = false;
+                                    break;
+                                }
+                            }
 
-                            // if !meta_match {
-                            //     continue;
-                            // }
+                            if !meta_match {
+                                continue;
+                            }
                         }
 
                         // Populate the response with the Program Info and the Kernel Info.
@@ -257,13 +257,13 @@ impl Bpflet for ProgHandler {
                             },
                             kernel_info: match (&r).try_into() {
                                 Ok(i) => {
-                                    // if let Program::Unsupported(_) = r {
-                                    //     r.delete().map_err(|e| {
-                                    //         Status::aborted(format!(
-                                    //             "failed to get program metadata: {e}"
-                                    //         ))
-                                    //     })?;
-                                    // };
+                                    if let Program::Unsupported(_) = r {
+                                        r.delete().map_err(|e| {
+                                            Status::aborted(format!(
+                                                "failed to get program metadata: {e}"
+                                            ))
+                                        })?;
+                                    };
                                     Ok(Some(i))
                                 }
                                 Err(e) => Err(Status::aborted(format!(
@@ -287,7 +287,37 @@ impl Bpflet for ProgHandler {
         }
     }
     async fn pull_bytecode(&self, request: Request<PullBytecodeRequest>) -> Result<Response<PullBytecodeResponse>, Status> {
-        todo!()
+        let request = request.into_inner();
+        let image = match request.image {
+            Some(i) => i.into(),
+            None => return Err(Status::aborted("Empty pull_bytecode request received")),
+        };
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let cmd = Command::PullBytecode(PullBytecodeArgs {
+            image,
+            responder: resp_tx,
+        });
+
+        self.tx.send(cmd).await.unwrap();
+
+        // Await the response
+        match resp_rx.await {
+            Ok(res) => match res {
+                Ok(_) => {
+                    let reply = PullBytecodeResponse {};
+                    Ok(Response::new(reply))
+                }
+                Err(e) => {
+                    warn!("BPFLET pull_bytecode error: {:#?}", e);
+                    Err(Status::aborted(format!("{e}")))
+                }
+            },
+
+            Err(e) => {
+                warn!("RPC pull_bytecode error: {:#?}", e);
+                Err(Status::aborted(format!("{e}")))
+            }
+        }
     }
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
         let request = request.into_inner();

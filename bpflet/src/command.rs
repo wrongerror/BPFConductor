@@ -7,7 +7,7 @@ use std::{
 
 use aya::programs::ProgramInfo as AyaProgInfo;
 use bpflet_api::{
-    util::directories::RTDIR_FS,
+    constants::directories::RTDIR_FS,
     v1::{
         attach_info::Info, bytecode_location::Location as V1Location, AttachInfo, BytecodeLocation,
         KernelProgramInfo as V1KernelProgramInfo, KprobeAttachInfo, ProgramInfo as V1ProgramInfo,
@@ -22,10 +22,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::{
+    dispatcher::{DispatcherId, DispatcherInfo},
     errors::BpfletError,
-    // multiprog::{DispatcherId, DispatcherInfo},
-    oci::image_manager::{BytecodeImage, Command as ImageManagerCommand},
-    utils::{
+    oci::manager::{BytecodeImage, Command as ImageManagerCommand},
+    helper::{
         bytes_to_bool, bytes_to_i32, bytes_to_string, bytes_to_u32, bytes_to_u64, bytes_to_usize,
     },
     BPFLET_DB,
@@ -94,7 +94,7 @@ impl Location {
         image_manager: Sender<ImageManagerCommand>,
     ) -> Result<(Vec<u8>, String), BpfletError> {
         match self {
-            Location::File(l) => Ok((crate::utils::read(l).await?, "".to_owned())),
+            Location::File(l) => Ok((crate::helper::read(l).await?, "".to_owned())),
             Location::Image(l) => {
                 let (tx, rx) = oneshot::channel();
                 image_manager
@@ -217,7 +217,7 @@ impl TryFrom<&Program> for V1ProgramInfo {
             },
         };
 
-        // Populate the Program Info with bpfman data
+        // Populate the Program Info with bpflet data
         Ok(V1ProgramInfo {
             name: data.get_name()?.to_string(),
             bytecode,
@@ -264,7 +264,7 @@ impl TryFrom<&Program> for V1KernelProgramInfo {
 }
 
 /// ProgramInfo stores information about bpf programs that are loaded and managed
-/// by bpfman.
+/// by bpflet.
 #[derive(Debug, Clone)]
 pub(crate) struct ProgramData {
     // Prior to load this will be a temporary Tree with a random ID, following
@@ -400,13 +400,13 @@ impl ProgramData {
 
     /*
      * Methods for setting and getting program data for programs managed by
-     * bpfman.
+     * bpflet.
      */
 
     // A programData's kind could be different from the kernel_program_type value
-    // since the TC and XDP programs loaded by bpfman will have a ProgramType::Ext
+    // since the TC and XDP programs loaded by bpflet will have a ProgramType::Ext
     // rather than ProgramType::Xdp or ProgramType::Tc.
-    // Kind should only be set on programs loaded by bpfman.
+    // Kind should only be set on programs loaded by bpflet.
     fn set_kind(&mut self, kind: ProgramType) -> Result<(), BpfletError> {
         self.insert("kind", &(Into::<u32>::into(kind)).to_ne_bytes())
     }
@@ -598,7 +598,7 @@ impl ProgramData {
     }
 
     /*
-     * End bpfman program info getters/setters.
+     * End bpflet program info getters/setters.
      */
 
     /*
@@ -1269,21 +1269,21 @@ impl Program {
         }
     }
 
-    // pub(crate) fn dispatcher_id(&self) -> Result<Option<DispatcherId>, BpfletError> {
-    //     Ok(match self {
-    //         Program::Xdp(p) => Some(DispatcherId::Xdp(DispatcherInfo(
-    //             p.get_if_index()?
-    //                 .expect("if_index should be known at this point"),
-    //             None,
-    //         ))),
-    //         Program::Tc(p) => Some(DispatcherId::Tc(DispatcherInfo(
-    //             p.get_if_index()?
-    //                 .expect("if_index should be known at this point"),
-    //             Some(p.get_direction()?),
-    //         ))),
-    //         _ => None,
-    //     })
-    // }
+    pub(crate) fn dispatcher_id(&self) -> Result<Option<DispatcherId>, BpfletError> {
+        Ok(match self {
+            Program::Xdp(p) => Some(DispatcherId::Xdp(DispatcherInfo(
+                p.get_if_index()?
+                    .expect("if_index should be known at this point"),
+                None,
+            ))),
+            Program::Tc(p) => Some(DispatcherId::Tc(DispatcherInfo(
+                p.get_if_index()?
+                    .expect("if_index should be known at this point"),
+                Some(p.get_direction()?),
+            ))),
+            _ => None,
+        })
+    }
 
     pub(crate) fn get_data_mut(&mut self) -> &mut ProgramData {
         match self {
