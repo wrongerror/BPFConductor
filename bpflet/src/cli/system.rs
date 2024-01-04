@@ -86,7 +86,7 @@ pub(crate) fn execute_service(config: &Config) -> anyhow::Result<()> {
             set_dir_permissions(RTDIR, RTDIR_MODE).await;
             set_dir_permissions(STDIR, STDIR_MODE).await;
 
-            serve(config, CFGDIR_STATIC_PROGRAMS).await?;
+            serve(config).await?;
             Ok(())
         })
 }

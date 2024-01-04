@@ -59,3 +59,5 @@ tokio-stream = { workspace = true, features = ["net"] }
 tonic = { workspace = true, features = ["transport"] }
 tower = { workspace = true }
 url = { workspace = true }
+rand = { version = "0.8.5", features = [] }
+lazy_static = "1.4.0"

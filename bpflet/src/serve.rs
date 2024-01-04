@@ -27,7 +27,6 @@ use crate::utils::{set_file_permissions, SOCK_MODE};
 
 pub async fn serve(
     config: &Config,
-    builtin_prog_path: &str
 ) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel(32);
     let handler = ProgHandler::new(tx);
@@ -49,6 +48,7 @@ pub async fn serve(
     });
 
     let mut bpf_manager = manager::BpfManager::new(config.clone(), rx, itx, database);
+    bpf_manager.rebuild_state().await?;
 
     join!(
         join_listeners(listeners),

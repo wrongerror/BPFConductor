@@ -1,5 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use hex::FromHex;
+use bpflet_api::ProgramType;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -18,6 +19,14 @@ pub(crate) enum Commands {
     /// Unload an eBPF program via program id.
     /// Example: bpflet unload 220
     Unload(UnloadArgs),
+
+    /// List all eBPF programs loaded via bpflet.
+    /// Example: bpflet list
+    List(ListArgs),
+
+    /// Get an eBPF program via program id.
+    /// Example: bpflet get 220
+    Get(GetArgs),
 
     /// Run bpflet as a service.
     /// Example: bpflet system start
@@ -236,6 +245,41 @@ pub(crate) enum LoadCommands {
 #[derive(Args, Debug)]
 pub(crate) struct UnloadArgs {
     /// Required: Program id to be unloaded.
+    pub(crate) id: u32,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ListArgs {
+    /// Optional: List a specific program type
+    /// Example: --program-type xdp
+    ///
+    /// [possible values: unspec, socket-filter, kprobe, tc, sched-act,
+    ///                   tracepoint, xdp, perf-event, cgroup-skb,
+    ///                   cgroup-sock, lwt-in, lwt-out, lwt-xmit, sock-ops,
+    ///                   sk-skb, cgroup-device, sk-msg, raw-tracepoint,
+    ///                   cgroup-sock-addr, lwt-seg6-local, lirc-mode2,
+    ///                   sk-reuseport, flow-dissector, cgroup-sysctl,
+    ///                   raw-tracepoint-writable, cgroup-sockopt, tracing,
+    ///                   struct-ops, ext, lsm, sk-lookup, syscall]
+    #[clap(short, long, verbatim_doc_comment, hide_possible_values = true)]
+    pub(crate) program_type: Option<ProgramType>,
+
+    /// Optional: List programs which contain a specific set of metadata labels
+    /// that were applied when the program was loaded with `--metadata` parameter.
+    /// Format: <KEY>=<VALUE>
+    ///
+    /// Example: --metadata-selector owner=acme
+    #[clap(short, long, verbatim_doc_comment, value_parser=parse_key_val, value_delimiter = ',')]
+    pub(crate) metadata_selector: Option<Vec<(String, String)>>,
+
+    /// Optional: List all programs.
+    #[clap(short, long, verbatim_doc_comment)]
+    pub(crate) all: bool,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct GetArgs {
+    /// Required: Program id to get.
     pub(crate) id: u32,
 }
 

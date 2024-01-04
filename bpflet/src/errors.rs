@@ -51,4 +51,6 @@ pub enum BpfletError {
         program_type: String,
         container_pid: i32,
     },
+    #[error("{0}: {1}")]
+    DatabaseError(String, String),
 }

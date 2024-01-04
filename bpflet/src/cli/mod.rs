@@ -4,6 +4,8 @@ mod image;
 mod system;
 mod table;
 mod unload;
+mod get;
+mod list;
 
 use args::Commands;
 use bpflet_api::{
@@ -31,6 +33,8 @@ impl Commands {
         match self {
             Commands::Load(l) => l.execute(),
             Commands::Unload(args) => unload::execute_unload(args),
+            Commands::Get(args) => get::execute_get(args),
+            Commands::List(args) => list::execute_list(args),
             Commands::System(s) => s.execute(&config),
         }
     }
