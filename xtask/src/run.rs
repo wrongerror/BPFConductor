@@ -1,4 +1,4 @@
-use std::{os::unix::process::CommandExt, path::PathBuf, process::Command};
+use std::{os::unix::process::CommandExt, process::Command};
 
 use anyhow::Context as _;
 use clap::Parser;

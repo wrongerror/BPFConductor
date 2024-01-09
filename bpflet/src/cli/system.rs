@@ -22,73 +22,67 @@ use crate::{
 };
 
 impl SystemSubcommand {
-    pub(crate) fn execute(&self, config: &Config) -> anyhow::Result<()> {
+    pub(crate) async fn execute(&self, config: &Config) -> anyhow::Result<()> {
         match self {
-            SystemSubcommand::Start => execute_service(config),
+            SystemSubcommand::Start => execute_service(config).await,
         }
     }
 }
 
-pub(crate) fn execute_service(config: &Config) -> anyhow::Result<()> {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async {
-            if connected_to_journal() {
-                // If bpflet is running as a service, log to journald.
-                JournalLog::default()
-                    .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))])
-                    .install()
-                    .unwrap();
-                manage_journal_log_level();
-                info!("Log using journald");
-            } else {
-                // Otherwise fall back to logging to standard error.
-                env_logger::init();
-                info!("Log using env_logger");
-            }
+pub(crate) async fn execute_service(config: &Config) -> anyhow::Result<()> {
+    if connected_to_journal() {
+        // If bpflet is running as a service, log to journald.
+        JournalLog::default()
+            .with_extra_fields(vec![("VERSION", env!("CARGO_PKG_VERSION"))])
+            .install()
+            .unwrap();
+        manage_journal_log_level();
+        info!("Log using journald");
+    } else {
+        // Otherwise fall back to logging to standard error.
+        env_logger::init();
+        info!("Log using env_logger");
+    }
 
-            has_cap(caps::CapSet::Effective, caps::Capability::CAP_BPF);
-            has_cap(caps::CapSet::Effective, caps::Capability::CAP_SYS_ADMIN);
+    has_cap(caps::CapSet::Effective, caps::Capability::CAP_BPF);
+    has_cap(caps::CapSet::Effective, caps::Capability::CAP_SYS_ADMIN);
 
-            setrlimit(Resource::RLIMIT_MEMLOCK, RLIM_INFINITY, RLIM_INFINITY).unwrap();
+    setrlimit(Resource::RLIMIT_MEMLOCK, RLIM_INFINITY, RLIM_INFINITY).unwrap();
 
-            // Create directories associated with bpflet
-            use bpflet_api::constants::directories::*;
-            create_dir_all(RTDIR).context("unable to create runtime directory")?;
-            create_dir_all(RTDIR_FS).context("unable to create mountpoint")?;
-            create_dir_all(RTDIR_TC_INGRESS_DISPATCHER)
-                .context("unable to create dispatcher directory")?;
-            create_dir_all(RTDIR_TC_EGRESS_DISPATCHER)
-                .context("unable to create dispatcher directory")?;
-            create_dir_all(RTDIR_XDP_DISPATCHER)
-                .context("unable to create dispatcher directory")?;
-            create_dir_all(RTDIR_PROGRAMS).context("unable to create programs directory")?;
+    // Create directories associated with bpflet
+    use bpflet_api::constants::directories::*;
+    create_dir_all(RTDIR).context("unable to create runtime directory")?;
+    create_dir_all(RTDIR_FS).context("unable to create mountpoint")?;
+    create_dir_all(RTDIR_TC_INGRESS_DISPATCHER)
+        .context("unable to create dispatcher directory")?;
+    create_dir_all(RTDIR_TC_EGRESS_DISPATCHER)
+        .context("unable to create dispatcher directory")?;
+    create_dir_all(RTDIR_XDP_DISPATCHER)
+        .context("unable to create dispatcher directory")?;
+    create_dir_all(RTDIR_PROGRAMS).context("unable to create programs directory")?;
 
-            if !is_bpffs_mounted()? {
-                create_bpffs(RTDIR_FS)?;
-            }
-            create_dir_all(RTDIR_FS_XDP).context("unable to create xdp distpacher directory")?;
-            create_dir_all(RTDIR_FS_TC_INGRESS)
-                .context("unable to create tc ingress dispatcher directory")?;
-            create_dir_all(RTDIR_FS_TC_EGRESS)
-                .context("unable to create tc egress dispatcher directory")?;
-            create_dir_all(RTDIR_FS_MAPS).context("unable to create maps directory")?;
-            create_dir_all(RTDIR_SOCK).context("unable to create socket directory")?;
+    if !is_bpffs_mounted()? {
+        create_bpffs(RTDIR_FS)?;
+    }
+    create_dir_all(RTDIR_FS_XDP).context("unable to create xdp distpacher directory")?;
+    create_dir_all(RTDIR_FS_TC_INGRESS)
+        .context("unable to create tc ingress dispatcher directory")?;
+    create_dir_all(RTDIR_FS_TC_EGRESS)
+        .context("unable to create tc egress dispatcher directory")?;
+    create_dir_all(RTDIR_FS_MAPS).context("unable to create maps directory")?;
+    create_dir_all(RTDIR_SOCK).context("unable to create socket directory")?;
 
-            create_dir_all(STDIR).context("unable to create state directory")?;
+    create_dir_all(STDIR).context("unable to create state directory")?;
 
-            create_dir_all(CFGDIR_STATIC_PROGRAMS)
-                .context("unable to create static programs directory")?;
+    create_dir_all(CFGDIR_STATIC_PROGRAMS)
+        .context("unable to create static programs directory")?;
 
-            set_dir_permissions(CFGDIR, CFGDIR_MODE).await;
-            set_dir_permissions(RTDIR, RTDIR_MODE).await;
-            set_dir_permissions(STDIR, STDIR_MODE).await;
+    set_dir_permissions(CFGDIR, CFGDIR_MODE).await;
+    set_dir_permissions(RTDIR, RTDIR_MODE).await;
+    set_dir_permissions(STDIR, STDIR_MODE).await;
 
-            serve(config).await?;
-            Ok(())
-        })
+    serve(config).await?;
+    Ok(())
 }
 
 fn manage_journal_log_level() {

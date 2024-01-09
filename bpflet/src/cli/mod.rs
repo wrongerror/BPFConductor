@@ -20,7 +20,7 @@ use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
 
 impl Commands {
-    pub(crate) fn execute(&self) -> Result<(), anyhow::Error> {
+    pub(crate) async fn execute(&self) -> Result<(), anyhow::Error> {
         let config = if let Ok(c) = fs::read_to_string(CFGPATH_BPFLET_CONFIG) {
             c.parse().unwrap_or_else(|_| {
                 warn!("Unable to parse config file, using defaults");
@@ -32,12 +32,12 @@ impl Commands {
         };
 
         match self {
-            Commands::Load(l) => l.execute(),
-            Commands::Unload(args) => unload::execute_unload(args),
-            Commands::Get(args) => get::execute_get(args),
-            Commands::List(args) => list::execute_list(args),
-            Commands::Image(i) => i.execute(),
-            Commands::System(s) => s.execute(&config),
+            Commands::Load(l) => l.execute().await,
+            Commands::Unload(args) => unload::execute_unload(args).await,
+            Commands::Get(args) => get::execute_get(args).await,
+            Commands::List(args) => list::execute_list(args).await,
+            Commands::Image(i) => i.execute().await,
+            Commands::System(s) => s.execute(&config).await,
         }
     }
 }

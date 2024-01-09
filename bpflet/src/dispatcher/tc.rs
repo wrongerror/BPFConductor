@@ -1,12 +1,12 @@
 use std::{fs, io::BufReader, mem};
 
 use aya::{
-    programs::{
-        links::FdLink,
-        tc::{self, SchedClassifierLink, TcOptions},
-        Extension, Link, SchedClassifier, TcAttachType,
+    Bpf,
+    BpfLoader, programs::{
+        Extension,
+        Link,
+        links::FdLink, SchedClassifier, tc::{self, SchedClassifierLink, TcOptions}, TcAttachType,
     },
-    Bpf, BpfLoader,
 };
 use bpflet_api::{constants::directories::*, ImagePullPolicy};
 use futures::stream::TryStreamExt;
@@ -16,17 +16,17 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::{
-    manager::{calc_map_pin_path, create_map_pin_path},
-    command::{
-        Direction,
-        Direction::{Egress, Ingress},
-        Program, TcProgram,
-    },
+    dispatcher::{config::TcDispatcherConfig, Dispatcher},
     errors::BpfletError,
-    dispatcher::{Dispatcher, config::TcDispatcherConfig},
+    helper::should_map_be_pinned
+    ,
     oci::manager::{BytecodeImage, Command as ImageManagerCommand},
-    helper::should_map_be_pinned,
 };
+use crate::map::{calc_map_pin_path, create_map_pin_path};
+use crate::program::Direction::{Egress, Ingress};
+use crate::program::Direction;
+use crate::program::program::Program;
+use crate::program::tc::TcProgram;
 
 const DEFAULT_PRIORITY: u32 = 50; // Default priority for user programs in the dispatcher
 const TC_DISPATCHER_PRIORITY: u16 = 50; // Default TC priority for TC Dispatcher
@@ -76,7 +76,7 @@ impl TcDispatcher {
 
         debug!("tc dispatcher config: {:?}", config);
         let image = BytecodeImage::new(
-            "quay.io/bpfman/tc-dispatcher:v1".to_string(),
+            "wrongerror/tc-dispatcher:v1".to_string(),
             ImagePullPolicy::IfNotPresent as i32,
             None,
             None,
@@ -198,8 +198,8 @@ impl TcDispatcher {
             .try_into()?;
 
         let attach_type = match self.direction {
-            Direction::Ingress => TcAttachType::Ingress,
-            Direction::Egress => TcAttachType::Egress,
+            Ingress => TcAttachType::Ingress,
+            Egress => TcAttachType::Egress,
         };
 
         let link_id = new_dispatcher.attach_with_options(
@@ -264,8 +264,8 @@ impl TcDispatcher {
                     .unwrap();
                 let new_link: FdLink = ext.take_link(new_link_id)?.into();
                 let base = match self.direction {
-                    Direction::Ingress => RTDIR_FS_TC_INGRESS,
-                    Direction::Egress => RTDIR_FS_TC_EGRESS,
+                    Ingress => RTDIR_FS_TC_INGRESS,
+                    Egress => RTDIR_FS_TC_EGRESS,
                 };
                 let path = format!("{base}/dispatcher_{if_index}_{}/link_{id}", self.revision);
                 new_link.pin(path).map_err(BpfletError::UnableToPinLink)?;
@@ -310,8 +310,8 @@ impl TcDispatcher {
                 let new_link = ext.take_link(new_link_id)?;
                 let fd_link: FdLink = new_link.into();
                 let base = match self.direction {
-                    Direction::Ingress => RTDIR_FS_TC_INGRESS,
-                    Direction::Egress => RTDIR_FS_TC_EGRESS,
+                    Ingress => RTDIR_FS_TC_INGRESS,
+                    Egress => RTDIR_FS_TC_EGRESS,
                 };
                 fd_link
                     .pin(format!(
@@ -349,8 +349,8 @@ impl TcDispatcher {
             self.if_index, self.revision
         );
         let base = match self.direction {
-            Direction::Ingress => RTDIR_TC_INGRESS_DISPATCHER,
-            Direction::Egress => RTDIR_TC_EGRESS_DISPATCHER,
+            Ingress => RTDIR_TC_INGRESS_DISPATCHER,
+            Egress => RTDIR_TC_EGRESS_DISPATCHER,
         };
         let path = format!("{base}/{}_{}", self.if_index, self.revision);
         serde_json::to_writer(&fs::File::create(path).unwrap(), &self)
@@ -365,8 +365,8 @@ impl TcDispatcher {
     ) -> Result<Self, anyhow::Error> {
         debug!("TcDispatcher::load() for if_index {if_index}, revision {revision}");
         let dir = match direction {
-            Direction::Ingress => RTDIR_TC_INGRESS_DISPATCHER,
-            Direction::Egress => RTDIR_TC_EGRESS_DISPATCHER,
+            Ingress => RTDIR_TC_INGRESS_DISPATCHER,
+            Egress => RTDIR_TC_EGRESS_DISPATCHER,
         };
         let path = format!("{dir}/{if_index}_{revision}");
         let file = fs::File::open(path)?;
@@ -382,16 +382,16 @@ impl TcDispatcher {
             self.if_index, self.revision
         );
         let base = match self.direction {
-            Direction::Ingress => RTDIR_TC_INGRESS_DISPATCHER,
-            Direction::Egress => RTDIR_TC_EGRESS_DISPATCHER,
+            Ingress => RTDIR_TC_INGRESS_DISPATCHER,
+            Egress => RTDIR_TC_EGRESS_DISPATCHER,
         };
         let path = format!("{base}/{}_{}", self.if_index, self.revision);
         fs::remove_file(path)
             .map_err(|e| BpfletError::Error(format!("unable to cleanup state: {e}")))?;
 
         let base = match self.direction {
-            Direction::Ingress => RTDIR_FS_TC_INGRESS,
-            Direction::Egress => RTDIR_FS_TC_EGRESS,
+            Ingress => RTDIR_FS_TC_INGRESS,
+            Egress => RTDIR_FS_TC_EGRESS,
         };
         let path = format!("{base}/dispatcher_{}_{}", self.if_index, self.revision);
         fs::remove_dir_all(path)
@@ -401,8 +401,8 @@ impl TcDispatcher {
             // Also detach the old dispatcher.
             if let Some(old_handle) = self.handle {
                 let attach_type = match self.direction {
-                    Direction::Ingress => TcAttachType::Ingress,
-                    Direction::Egress => TcAttachType::Egress,
+                    Ingress => TcAttachType::Ingress,
+                    Egress => TcAttachType::Egress,
                 };
                 if let Ok(old_link) = SchedClassifierLink::attached(
                     &self.if_name,

@@ -16,7 +16,7 @@ use bpflet_api::{
     constants::directories::RTPATH_BPFLET_SOCKET,
     v1::{
         bpflet_server::BpfletServer
-    }
+    },
 };
 
 use crate::{BPFLET_DB, handler::ProgHandler, manager};
@@ -91,7 +91,12 @@ async fn serve_unix(
 
     let serve = Server::builder()
         .add_service(service)
-        .serve_with_incoming(uds_stream);
+        .serve_with_incoming_shutdown(
+            uds_stream,
+            async move {
+                shutdown_handler().await;
+            },
+        );
 
     Ok(tokio::spawn(async move {
         info!("Listening on {}", path);

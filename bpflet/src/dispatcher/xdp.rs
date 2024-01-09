@@ -1,11 +1,11 @@
 use std::{fs, io::BufReader, path::PathBuf};
 
 use aya::{
-    programs::{
-        links::{FdLink, PinnedLink},
-        Extension, Xdp,
+    Bpf,
+    BpfLoader, programs::{
+        Extension,
+        links::{FdLink, PinnedLink}, Xdp,
     },
-    Bpf, BpfLoader,
 };
 use bpflet_api::{config::XdpMode, constants::directories::*, ImagePullPolicy};
 use log::debug;
@@ -13,12 +13,12 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::{
-    manager::{calc_map_pin_path, create_map_pin_path},
-    command::{Program, XdpProgram},
+    dispatcher::{config::XdpDispatcherConfig, Dispatcher},
     errors::BpfletError,
-    dispatcher::{Dispatcher, config::XdpDispatcherConfig},
-    oci::manager::{BytecodeImage, Command as ImageManagerCommand},
     helper::should_map_be_pinned,
+    oci::manager::{BytecodeImage, Command as ImageManagerCommand},
+    map::{calc_map_pin_path, create_map_pin_path},
+    program::{program::Program, xdp::XdpProgram},
 };
 
 pub(crate) const DEFAULT_PRIORITY: u32 = 50;
@@ -74,7 +74,7 @@ impl XdpDispatcher {
 
         debug!("xdp dispatcher config: {:?}", config);
         let image = BytecodeImage::new(
-            "quay.io/bpfman/xdp-dispatcher:v2".to_string(),
+            "wrongerror/xdp-dispatcher:v2".to_string(),
             ImagePullPolicy::IfNotPresent as i32,
             None,
             None,

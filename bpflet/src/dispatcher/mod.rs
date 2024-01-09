@@ -12,10 +12,11 @@ use tokio::sync::mpsc::Sender;
 pub use xdp::XdpDispatcher;
 
 use crate::{
-    command::{Direction, Program},
     errors::BpfletError,
     oci::manager::Command as ImageManagerCommand,
 };
+use crate::program::Direction;
+use crate::program::program::Program;
 
 pub(crate) enum Dispatcher {
     Xdp(XdpDispatcher),

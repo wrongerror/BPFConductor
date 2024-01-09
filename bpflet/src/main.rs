@@ -12,6 +12,8 @@ mod oci;
 mod serve;
 mod helper;
 mod dispatcher;
+mod program;
+mod map;
 
 const BPFLET_ENV_LOG_LEVEL: &str = "RUST_LOG";
 
@@ -22,7 +24,8 @@ lazy_static! {
         .expect("Unable to open bpflet database");
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = cli::args::Cli::parse();
-    cli.command.execute()
+    cli.command.execute().await
 }

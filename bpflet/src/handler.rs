@@ -1,17 +1,25 @@
 use log::warn;
 use bpflet_api::{
+    TcProceedOn,
     v1::{
         attach_info::Info, bpflet_server::Bpflet, bytecode_location::Location, GetRequest, GetResponse, KprobeAttachInfo, ListRequest,
         ListResponse, LoadRequest, LoadResponse, PullBytecodeRequest, PullBytecodeResponse,
         TcAttachInfo, TracepointAttachInfo, UnloadRequest, UnloadResponse, UprobeAttachInfo,
         XdpAttachInfo,
-    },
-    TcProceedOn, XdpProceedOn,
+    }, XdpProceedOn,
 };
 use tokio::sync::{mpsc::Sender, oneshot};
 use tonic::{Request, Response, Status};
 use bpflet_api::v1::list_response::ListResult;
-use crate::command::{Command, LoadArgs, Program, ProgramData, XdpProgram, TcProgram, TracepointProgram, KprobeProgram, UprobeProgram, UnloadArgs, GetArgs, PullBytecodeArgs};
+use crate::command::{Command, GetArgs, LoadArgs, PullBytecodeArgs, UnloadArgs};
+use crate::program::{
+    kprobe::KprobeProgram,
+    program::{Program, ProgramData},
+    tc::TcProgram,
+    tracepoint::TracepointProgram,
+    uprobe::UprobeProgram,
+    xdp::XdpProgram,
+};
 
 #[derive(Debug)]
 pub struct ProgHandler {
@@ -36,8 +44,8 @@ impl Bpflet for ProgHandler {
             .location
             .ok_or(Status::aborted("missing bytecode location"))?
         {
-            Location::Image(i) => crate::command::Location::Image(i.into()),
-            Location::File(p) => crate::command::Location::File(p.into()),
+            Location::Image(i) => crate::program::Location::Image(i.into()),
+            Location::File(p) => crate::program::Location::File(p.into()),
         };
 
         let data = ProgramData::new_pre_load(

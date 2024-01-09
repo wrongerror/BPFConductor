@@ -6,11 +6,11 @@ use std::{
 use anyhow::anyhow;
 
 use aya::{
-    programs::{
-        kprobe::KProbeLink, links::FdLink, loaded_programs, trace_point::TracePointLink,
-        uprobe::UProbeLink, KProbe, TracePoint, UProbe,
-    },
     BpfLoader,
+    programs::{
+        KProbe, kprobe::KProbeLink, links::FdLink, loaded_programs,
+        trace_point::TracePointLink, TracePoint, UProbe, uprobe::UProbeLink,
+    },
 };
 use bpflet_api::{
     config::Config,
@@ -20,7 +20,7 @@ use bpflet_api::{
 };
 use log::{debug, info};
 use tokio::{
-    fs::{create_dir_all, remove_dir_all},
+    fs::remove_dir_all,
     select,
     sync::{
         mpsc::{Receiver, Sender},
@@ -30,20 +30,21 @@ use tokio::{
 use tokio::fs::read_dir;
 
 use crate::{
-    command::{
-        BpfMap, Command, Direction,
-        Direction::{Egress, Ingress},
-        Program, ProgramData, PullBytecodeArgs, UnloadArgs,
-    },
-    dispatcher::{Dispatcher, DispatcherId, DispatcherInfo, TcDispatcher, XdpDispatcher},
-    errors::BpfletError,
-    oci::manager::Command as ImageManagerCommand,
     BPFLET_DB,
+    command::{
+        Command,
+        PullBytecodeArgs, UnloadArgs,
+    },
+    dispatcher::{
+        Dispatcher, DispatcherId, DispatcherInfo, TcDispatcher, XdpDispatcher}, errors::BpfletError, helper::{bytes_to_string, get_ifindex, set_dir_permissions, should_map_be_pinned}, map, map::{DispatcherMap, MAPS_MODE, ProgramMap}, oci::manager::Command as ImageManagerCommand,
+    program::{
+        Direction,
+        Direction::{Egress, Ingress},
+        program::{Program, ProgramData},
+    },
     serve::shutdown_handler,
-    helper::{bytes_to_string, get_ifindex, set_dir_permissions, should_map_be_pinned},
 };
-
-const MAPS_MODE: u32 = 0o0660;
+use crate::map::BpfMap;
 
 pub(crate) struct BpfManager {
     config: Config,
@@ -52,150 +53,6 @@ pub(crate) struct BpfManager {
     maps: HashMap<u32, BpfMap>,
     commands: Receiver<Command>,
     image_manager: Sender<ImageManagerCommand>,
-}
-
-pub(crate) struct ProgramMap {
-    programs: HashMap<u32, Program>,
-}
-
-impl ProgramMap {
-    fn new() -> Self {
-        ProgramMap {
-            programs: HashMap::new(),
-        }
-    }
-
-    fn insert(&mut self, id: u32, prog: Program) -> Option<Program> {
-        self.programs.insert(id, prog)
-    }
-
-    fn remove(&mut self, id: &u32) -> Option<Program> {
-        self.programs.remove(id)
-    }
-
-    fn get_mut(&mut self, id: &u32) -> Option<&mut Program> {
-        self.programs.get_mut(id)
-    }
-
-    fn get(&self, id: &u32) -> Option<&Program> {
-        self.programs.get(id)
-    }
-
-    fn programs_mut<'a>(
-        &'a mut self,
-        program_type: &'a ProgramType,
-        if_index: &'a Option<u32>,
-        direction: &'a Option<Direction>,
-    ) -> impl Iterator<Item=&'a mut Program> {
-        self.programs.values_mut().filter(|p| {
-            p.kind() == *program_type
-                && p.if_index().unwrap() == *if_index
-                && p.direction().unwrap() == *direction
-        })
-    }
-
-    // Adds a new program and sets the positions of programs that are to be attached via a dispatcher.
-    // Positions are set based on order of priority. Ties are broken based on:
-    // - Already attached programs are preferred
-    // - Program name. Lowest lexical order wins.
-    fn add_and_set_program_positions(&mut self, program: &mut Program) {
-        let program_type = program.kind();
-        let if_index = program.if_index().unwrap();
-        let direction = program.direction().unwrap();
-
-        let mut extensions = self
-            .programs
-            .values_mut()
-            .filter(|p| {
-                p.kind() == program_type
-                    && p.if_index().unwrap() == if_index
-                    && p.direction().unwrap() == direction
-            })
-            .collect::<Vec<&mut Program>>();
-
-        // add program we're loading
-        extensions.push(program);
-
-        extensions.sort_by_key(|b| {
-            (
-                b.priority().unwrap(),
-                b.attached(),
-                b.get_data().get_name().unwrap().to_owned(),
-            )
-        });
-        for (i, v) in extensions.iter_mut().enumerate() {
-            v.set_position(i).expect("unable to set program position");
-        }
-    }
-
-    // Sets the positions of programs that are to be attached via a dispatcher.
-    // Positions are set based on order of priority. Ties are broken based on:
-    // - Already attached programs are preferred
-    // - Program name. Lowest lexical order wins.
-    fn set_program_positions(
-        &mut self,
-        program_type: ProgramType,
-        if_index: u32,
-        direction: Option<Direction>,
-    ) {
-        let mut extensions = self
-            .programs
-            .values_mut()
-            .filter(|p| {
-                p.kind() == program_type
-                    && p.if_index().unwrap() == Some(if_index)
-                    && p.direction().unwrap() == direction
-            })
-            .collect::<Vec<&mut Program>>();
-
-        extensions.sort_by_key(|b| {
-            (
-                b.priority().unwrap(),
-                b.attached(),
-                b.get_data().get_name().unwrap().to_owned(),
-            )
-        });
-        for (i, v) in extensions.iter_mut().enumerate() {
-            v.set_position(i).expect("unable to set program position");
-        }
-    }
-
-    fn get_programs_iter(&self) -> impl Iterator<Item=(u32, &Program)> {
-        self.programs
-            .values()
-            .map(|p| (p.get_data().get_id().unwrap(), p))
-    }
-}
-
-
-pub(crate) struct DispatcherMap {
-    dispatchers: HashMap<DispatcherId, Dispatcher>,
-}
-
-impl DispatcherMap {
-    fn new() -> Self {
-        DispatcherMap {
-            dispatchers: HashMap::new(),
-        }
-    }
-
-    fn remove(&mut self, id: &DispatcherId) -> Option<Dispatcher> {
-        self.dispatchers.remove(id)
-    }
-
-    fn insert(&mut self, id: DispatcherId, dis: Dispatcher) -> Option<Dispatcher> {
-        self.dispatchers.insert(id, dis)
-    }
-
-    /// Returns the number of extension programs currently attached to the dispatcher that
-    /// would be used to attach the provided [`Program`].
-    fn attached_programs(&self, did: &DispatcherId) -> usize {
-        if let Some(d) = self.dispatchers.get(did) {
-            d.num_extensions()
-        } else {
-            0
-        }
-    }
 }
 
 
@@ -670,9 +527,9 @@ impl BpfManager {
             Ok(id) => {
                 // If this program is the map(s) owner pin all maps (except for .rodata and .bss) by name.
                 if p.get_data().get_map_pin_path()?.is_none() {
-                    let map_pin_path = calc_map_pin_path(id);
+                    let map_pin_path = map::calc_map_pin_path(id);
                     p.get_data_mut().set_map_pin_path(&map_pin_path)?;
-                    create_map_pin_path(&map_pin_path).await?;
+                    map::create_map_pin_path(&map_pin_path).await?;
 
                     for (name, map) in loader.maps_mut() {
                         if !should_map_be_pinned(name) {
@@ -700,7 +557,7 @@ impl BpfManager {
 
     pub(crate) async fn remove_program(&mut self, id: u32) -> Result<(), BpfletError> {
         info!("Removing program with id: {id}");
-        let mut prog = match self.programs.remove(&id) {
+        let prog = match self.programs.remove(&id) {
             Some(p) => p,
             None => {
                 return Err(BpfletError::Error(format!(
@@ -713,7 +570,7 @@ impl BpfManager {
         let map_owner_id = prog.get_data().get_map_owner_id()?;
 
         match prog {
-            Program::Xdp(_) | Program::Tc(_) => self.remove_multi_attach_program(&mut prog).await?,
+            Program::Xdp(_) | Program::Tc(_) => self.remove_multi_attach_program(&prog).await?,
             Program::Tracepoint(_)
             | Program::Kprobe(_)
             | Program::Uprobe(_)
@@ -730,7 +587,7 @@ impl BpfManager {
 
     pub(crate) async fn remove_multi_attach_program(
         &mut self,
-        program: &mut Program,
+        program: &Program,
     ) -> Result<(), BpfletError> {
         debug!("BpfManager::remove_multi_attach_program()");
 
@@ -976,7 +833,7 @@ impl BpfManager {
 
     // This function checks to see if the user provided map_owner_id is valid.
     fn is_map_owner_id_valid(&mut self, map_owner_id: u32) -> Result<PathBuf, BpfletError> {
-        let map_pin_path = calc_map_pin_path(map_owner_id);
+        let map_pin_path = map::calc_map_pin_path(map_owner_id);
 
         if self.maps.contains_key(&map_owner_id) {
             // Return the map_pin_path
@@ -1095,7 +952,7 @@ impl BpfManager {
 
             if map.used_by.is_empty() {
                 // No more programs using this map, so remove the entry from the map list.
-                let path = calc_map_pin_path(index);
+                let path = map::calc_map_pin_path(index);
                 self.maps.remove(&index.clone());
                 remove_dir_all(path)
                     .await
@@ -1149,19 +1006,4 @@ impl BpfManager {
             program.get_data_mut().set_maps_used_by(vec![id]).unwrap();
         }
     }
-}
-
-// map_pin_path is a the directory the maps are located. Currently, it
-// is a fixed Bpflet location containing the map_index, which is a ID.
-// The ID is either the programs ID, or the ID of another program
-// that map_owner_id references.
-pub fn calc_map_pin_path(id: u32) -> PathBuf {
-    PathBuf::from(format!("{RTDIR_FS_MAPS}/{}", id))
-}
-
-// Create the map_pin_path for a given program.
-pub async fn create_map_pin_path(p: &Path) -> Result<(), BpfletError> {
-    create_dir_all(p)
-        .await
-        .map_err(|e| BpfletError::Error(format!("can't create map dir: {e}")))
 }
