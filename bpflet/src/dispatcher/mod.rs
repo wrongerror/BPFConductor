@@ -1,22 +1,20 @@
-mod config;
-mod tc;
-mod xdp;
+use log::debug;
+use tokio::sync::mpsc::Sender;
 
 use bpflet_api::{
     config::{InterfaceConfig, XdpMode},
     ProgramType,
 };
-use log::debug;
 pub use tc::TcDispatcher;
-use tokio::sync::mpsc::Sender;
 pub use xdp::XdpDispatcher;
 
-use crate::{
-    errors::BpfletError,
-    oci::manager::Command as ImageManagerCommand,
-};
-use crate::program::Direction;
 use crate::program::program::Program;
+use crate::program::Direction;
+use crate::{errors::BpfletError, oci::manager::Command as ImageManagerCommand};
+
+mod config;
+mod tc;
+mod xdp;
 
 pub(crate) enum Dispatcher {
     Xdp(XdpDispatcher),
@@ -56,7 +54,7 @@ impl Dispatcher {
                     old_dispatcher,
                     image_manager,
                 )
-                    .await?;
+                .await?;
                 Dispatcher::Xdp(x)
             }
             ProgramType::Tc => {
@@ -69,7 +67,7 @@ impl Dispatcher {
                     old_dispatcher,
                     image_manager,
                 )
-                    .await?;
+                .await?;
                 Dispatcher::Tc(t)
             }
             _ => return Err(BpfletError::DispatcherNotRequired),

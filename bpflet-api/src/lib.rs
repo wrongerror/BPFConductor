@@ -1,16 +1,18 @@
+use std::fmt::Display;
+
+use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use url::ParseError as urlParseError;
+
+use v1::bytecode_location::Location;
+
 pub mod config;
 pub mod constants;
 #[path = "bpflet.v1.rs"]
 #[rustfmt::skip]
 #[allow(clippy::all)]
 pub mod v1;
-
-use std::fmt::Display;
-use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use url::ParseError as urlParseError;
-use v1::bytecode_location::Location;
 
 #[derive(Error, Debug)]
 pub enum ParseError {

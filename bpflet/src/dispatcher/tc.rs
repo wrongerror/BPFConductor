@@ -1,32 +1,32 @@
 use std::{fs, io::BufReader, mem};
 
 use aya::{
-    Bpf,
-    BpfLoader, programs::{
-        Extension,
-        Link,
-        links::FdLink, SchedClassifier, tc::{self, SchedClassifierLink, TcOptions}, TcAttachType,
+    programs::{
+        links::FdLink,
+        tc::{self, SchedClassifierLink, TcOptions},
+        Extension, Link, SchedClassifier, TcAttachType,
     },
+    Bpf, BpfLoader,
 };
-use bpflet_api::{constants::directories::*, ImagePullPolicy};
 use futures::stream::TryStreamExt;
 use log::debug;
 use netlink_packet_route::tc::Nla;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::Sender, oneshot};
 
+use bpflet_api::{constants::directories::*, ImagePullPolicy};
+
+use crate::map::{calc_map_pin_path, create_map_pin_path};
+use crate::program::program::Program;
+use crate::program::tc::TcProgram;
+use crate::program::Direction;
+use crate::program::Direction::{Egress, Ingress};
 use crate::{
     dispatcher::{config::TcDispatcherConfig, Dispatcher},
     errors::BpfletError,
-    helper::should_map_be_pinned
-    ,
+    helper::should_map_be_pinned,
     oci::manager::{BytecodeImage, Command as ImageManagerCommand},
 };
-use crate::map::{calc_map_pin_path, create_map_pin_path};
-use crate::program::Direction::{Egress, Ingress};
-use crate::program::Direction;
-use crate::program::program::Program;
-use crate::program::tc::TcProgram;
 
 const DEFAULT_PRIORITY: u32 = 50; // Default priority for user programs in the dispatcher
 const TC_DISPATCHER_PRIORITY: u16 = 50; // Default TC priority for TC Dispatcher

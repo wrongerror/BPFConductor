@@ -1,4 +1,7 @@
 use anyhow::bail;
+use comfy_table::{Cell, Color, Table};
+use hex::encode_upper;
+
 use bpflet_api::{
     v1::{
         attach_info::Info, bytecode_location::Location, list_response::ListResult,
@@ -9,8 +12,7 @@ use bpflet_api::{
     ProbeType::{Kprobe, Kretprobe, Uprobe, Uretprobe},
     ProgramType, TcProceedOn, XdpProceedOn,
 };
-use comfy_table::{Cell, Color, Table};
-use hex::encode_upper;
+
 pub(crate) struct ProgTable(Table);
 
 impl ProgTable {

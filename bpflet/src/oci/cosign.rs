@@ -26,8 +26,8 @@ impl CosignVerifier {
             info!("Starting Cosign Verifier, downloading data from Sigstore TUF repository");
             SigstoreRepository::fetch(None)
         })
-            .await
-            .map_err(|e| anyhow!("Error spawning blocking task inside of tokio: {}", e))?;
+        .await
+        .map_err(|e| anyhow!("Error spawning blocking task inside of tokio: {}", e))?;
 
         let repo: SigstoreRepository = repo?;
 

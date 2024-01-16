@@ -1,7 +1,8 @@
 use clap::{Args, Parser, Subcommand};
+
 use bpflet_api::ProgramType;
 
-use crate::cli::helper::{parse_key_val, parse_global_arg};
+use crate::helper::{parse_global_arg, parse_key_val};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -32,11 +33,6 @@ pub(crate) enum Commands {
     /// eBPF Bytecode Image related commands.
     #[command(subcommand)]
     Image(ImageSubCommand),
-
-    /// Run bpflet as a service.
-    /// Example: bpflet system start
-    #[command(subcommand)]
-    System(SystemSubcommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -314,7 +310,6 @@ pub(crate) struct PullBytecodeArgs {
     #[clap(short, long, verbatim_doc_comment, default_value = "IfNotPresent")]
     pub(crate) pull_policy: String,
 }
-
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum SystemSubcommand {

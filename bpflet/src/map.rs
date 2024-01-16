@@ -1,11 +1,14 @@
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use bpflet_api::{ProgramType, constants::directories::RTDIR_FS_MAPS};
+use std::path::{Path, PathBuf};
+
 use tokio::fs::create_dir_all;
+
+use bpflet_api::{constants::directories::*, ProgramType};
+
 use crate::dispatcher::{Dispatcher, DispatcherId};
 use crate::errors::BpfletError;
-use crate::program::Direction;
 use crate::program::program::Program;
+use crate::program::Direction;
 
 pub const MAPS_MODE: u32 = 0o0660;
 
@@ -41,7 +44,7 @@ impl ProgramMap {
         program_type: &'a ProgramType,
         if_index: &'a Option<u32>,
         direction: &'a Option<Direction>,
-    ) -> impl Iterator<Item=&'a mut Program> {
+    ) -> impl Iterator<Item = &'a mut Program> {
         self.programs.values_mut().filter(|p| {
             p.kind() == *program_type
                 && p.if_index().unwrap() == *if_index
@@ -115,13 +118,12 @@ impl ProgramMap {
         }
     }
 
-    pub(crate) fn get_programs_iter(&self) -> impl Iterator<Item=(u32, &Program)> {
+    pub(crate) fn get_programs_iter(&self) -> impl Iterator<Item = (u32, &Program)> {
         self.programs
             .values()
             .map(|p| (p.get_data().get_id().unwrap(), p))
     }
 }
-
 
 pub(crate) struct DispatcherMap {
     dispatchers: HashMap<DispatcherId, Dispatcher>,

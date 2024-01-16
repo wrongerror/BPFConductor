@@ -1,8 +1,9 @@
 use bpflet_api::{ProgramType, TcProceedOn, TcProceedOnEntry};
-use crate::program::Direction;
+
 use crate::errors::BpfletError;
 use crate::helper::{bytes_to_bool, bytes_to_i32, bytes_to_string, bytes_to_u32, bytes_to_usize};
 use crate::program::program::ProgramData;
+use crate::program::Direction;
 
 #[derive(Debug, Clone)]
 pub(crate) struct TcProgram {

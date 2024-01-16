@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr, fmt::Display};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use aya::programs::XdpFlags;
 use serde::{Deserialize, Serialize};

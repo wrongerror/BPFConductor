@@ -1,17 +1,20 @@
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
-use serde::{Deserialize, Serialize};
+
 use bpflet_api::ParseError;
-use std::fmt;
+
 use crate::errors::BpfletError;
 use crate::oci::manager::{BytecodeImage, Command as ImageManagerCommand};
 
-pub(crate) mod xdp;
-pub(crate) mod tc;
 pub(crate) mod kprobe;
-pub(crate) mod uprobe;
 pub(crate) mod program;
+pub(crate) mod tc;
 pub(crate) mod tracepoint;
+pub(crate) mod uprobe;
+pub(crate) mod xdp;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) enum Location {

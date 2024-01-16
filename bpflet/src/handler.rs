@@ -1,16 +1,18 @@
 use log::warn;
-use bpflet_api::{
-    TcProceedOn,
-    v1::{
-        attach_info::Info, bpflet_server::Bpflet, bytecode_location::Location, GetRequest, GetResponse, KprobeAttachInfo, ListRequest,
-        ListResponse, LoadRequest, LoadResponse, PullBytecodeRequest, PullBytecodeResponse,
-        TcAttachInfo, TracepointAttachInfo, UnloadRequest, UnloadResponse, UprobeAttachInfo,
-        XdpAttachInfo,
-    }, XdpProceedOn,
-};
 use tokio::sync::{mpsc::Sender, oneshot};
 use tonic::{Request, Response, Status};
+
 use bpflet_api::v1::list_response::ListResult;
+use bpflet_api::{
+    v1::{
+        attach_info::Info, bpflet_server::Bpflet, bytecode_location::Location, GetRequest,
+        GetResponse, KprobeAttachInfo, ListRequest, ListResponse, LoadRequest, LoadResponse,
+        PullBytecodeRequest, PullBytecodeResponse, TcAttachInfo, TracepointAttachInfo,
+        UnloadRequest, UnloadResponse, UprobeAttachInfo, XdpAttachInfo,
+    },
+    TcProceedOn, XdpProceedOn,
+};
+
 use crate::command::{Command, GetArgs, LoadArgs, PullBytecodeArgs, UnloadArgs};
 use crate::program::{
     kprobe::KprobeProgram,
@@ -55,7 +57,7 @@ impl Bpflet for ProgHandler {
             request.global_data,
             request.map_owner_id,
         )
-            .map_err(|e| Status::aborted(format!("failed to create ProgramData: {e}")))?;
+        .map_err(|e| Status::aborted(format!("failed to create ProgramData: {e}")))?;
 
         let load_args = LoadArgs {
             program: match request
@@ -64,13 +66,12 @@ impl Bpflet for ProgHandler {
                 .info
                 .ok_or(Status::aborted("missing info"))?
             {
-                Info::XdpAttachInfo(
-                    XdpAttachInfo {
-                        priority,
-                        iface,
-                        position: _,
-                        proceed_on
-                    }) => Program::Xdp(
+                Info::XdpAttachInfo(XdpAttachInfo {
+                    priority,
+                    iface,
+                    position: _,
+                    proceed_on,
+                }) => Program::Xdp(
                     XdpProgram::new(
                         data,
                         priority,
@@ -78,16 +79,15 @@ impl Bpflet for ProgHandler {
                         XdpProceedOn::from_int32s(proceed_on)
                             .map_err(|_| Status::aborted("failed to parse proceed_on"))?,
                     )
-                        .map_err(|e| Status::aborted(format!("failed to create xdpprogram: {e}")))?,
+                    .map_err(|e| Status::aborted(format!("failed to create xdpprogram: {e}")))?,
                 ),
-                Info::TcAttachInfo(
-                    TcAttachInfo {
-                        priority,
-                        iface,
-                        position: _,
-                        direction,
-                        proceed_on,
-                    }) => {
+                Info::TcAttachInfo(TcAttachInfo {
+                    priority,
+                    iface,
+                    position: _,
+                    direction,
+                    proceed_on,
+                }) => {
                     let direction = direction
                         .try_into()
                         .map_err(|_| Status::aborted("direction is not a string"))?;
@@ -99,38 +99,35 @@ impl Bpflet for ProgHandler {
                             TcProceedOn::from_int32s(proceed_on)
                                 .map_err(|_| Status::aborted("failed to parse proceed_on"))?,
                             direction,
-                        ).map_err(|e| Status::aborted(format!("failed to create tcprogram: {e}")))?,
+                        )
+                        .map_err(|e| Status::aborted(format!("failed to create tcprogram: {e}")))?,
                     )
                 }
-                Info::TracepointAttachInfo(
-                    TracepointAttachInfo { tracepoint, }
-                ) => Program::Tracepoint(
-                    TracepointProgram::new(data, tracepoint).map_err(|e| {
-                        Status::aborted(format!("failed to create tcprogram: {e}"))
-                    })?,
-                ),
-                Info::KprobeAttachInfo(
-                    KprobeAttachInfo {
-                        fn_name,
-                        offset,
-                        retprobe,
-                        container_pid
-                    }
-                ) => Program::Kprobe(
+                Info::TracepointAttachInfo(TracepointAttachInfo { tracepoint }) => {
+                    Program::Tracepoint(
+                        TracepointProgram::new(data, tracepoint).map_err(|e| {
+                            Status::aborted(format!("failed to create tcprogram: {e}"))
+                        })?,
+                    )
+                }
+                Info::KprobeAttachInfo(KprobeAttachInfo {
+                    fn_name,
+                    offset,
+                    retprobe,
+                    container_pid,
+                }) => Program::Kprobe(
                     KprobeProgram::new(data, fn_name, offset, retprobe, container_pid).map_err(
                         |e| Status::aborted(format!("failed to create kprobeprogram: {e}")),
                     )?,
                 ),
-                Info::UprobeAttachInfo(
-                    UprobeAttachInfo {
-                        fn_name,
-                        offset,
-                        target,
-                        retprobe,
-                        pid,
-                        container_pid
-                    }
-                ) => Program::Uprobe(
+                Info::UprobeAttachInfo(UprobeAttachInfo {
+                    fn_name,
+                    offset,
+                    target,
+                    retprobe,
+                    pid,
+                    container_pid,
+                }) => Program::Uprobe(
                     UprobeProgram::new(data, fn_name, offset, target, retprobe, pid, container_pid)
                         .map_err(|e| {
                             Status::aborted(format!("failed to create uprobeprogram: {e}"))
@@ -148,11 +145,11 @@ impl Bpflet for ProgHandler {
                     let response = LoadResponse {
                         info: match (&prog).try_into() {
                             Ok(i) => Some(i),
-                            Err(_) => None
+                            Err(_) => None,
                         },
                         kernel_info: match (&prog).try_into() {
                             Ok(i) => Some(i),
-                            Err(_) => None
+                            Err(_) => None,
                         },
                     };
                     Ok(Response::new(response))
@@ -161,23 +158,23 @@ impl Bpflet for ProgHandler {
                     warn!("Bpflet load error = {:#?}", e);
                     Err(Status::aborted(format!("{e}")))
                 }
-            }
+            },
             Err(e) => {
                 warn!("RPC load error = {:#?}", e);
                 Err(Status::aborted(format!("{e}")))
             }
         }
     }
-    async fn unload(&self, request: Request<UnloadRequest>) -> Result<Response<UnloadResponse>, Status> {
+    async fn unload(
+        &self,
+        request: Request<UnloadRequest>,
+    ) -> Result<Response<UnloadResponse>, Status> {
         let reply = UnloadResponse {};
         let request = request.into_inner();
         let id = request.id;
 
         let (tx, rx) = oneshot::channel();
-        let cmd = Command::Unload(UnloadArgs {
-            id,
-            responder: tx,
-        });
+        let cmd = Command::Unload(UnloadArgs { id, responder: tx });
 
         // Send the GET request
         self.tx.send(cmd).await.unwrap();
@@ -294,7 +291,10 @@ impl Bpflet for ProgHandler {
             }
         }
     }
-    async fn pull_bytecode(&self, request: Request<PullBytecodeRequest>) -> Result<Response<PullBytecodeResponse>, Status> {
+    async fn pull_bytecode(
+        &self,
+        request: Request<PullBytecodeRequest>,
+    ) -> Result<Response<PullBytecodeResponse>, Status> {
         let request = request.into_inner();
         let image = match request.image {
             Some(i) => i.into(),
@@ -332,10 +332,7 @@ impl Bpflet for ProgHandler {
         let id = request.id;
 
         let (tx, rx) = oneshot::channel();
-        let cmd = Command::Get(GetArgs {
-            id,
-            responder: tx,
-        });
+        let cmd = Command::Get(GetArgs { id, responder: tx });
 
         // Send the GET request
         self.tx.send(cmd).await.unwrap();

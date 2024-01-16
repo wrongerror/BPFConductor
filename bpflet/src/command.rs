@@ -1,10 +1,6 @@
 use tokio::sync::oneshot;
 
-use crate::{
-    errors::BpfletError,
-    oci::manager::BytecodeImage,
-    program::program::Program
-};
+use crate::{errors::BpfletError, oci::manager::BytecodeImage, program::program::Program};
 
 /// Provided by the requester and used by the manager task to send
 /// the command response back to the requester.

@@ -1,23 +1,24 @@
 use std::{fs, io::BufReader, path::PathBuf};
 
 use aya::{
-    Bpf,
-    BpfLoader, programs::{
-        Extension,
-        links::{FdLink, PinnedLink}, Xdp,
+    programs::{
+        links::{FdLink, PinnedLink},
+        Extension, Xdp,
     },
+    Bpf, BpfLoader,
 };
-use bpflet_api::{config::XdpMode, constants::directories::*, ImagePullPolicy};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc::Sender, oneshot};
+
+use bpflet_api::{config::XdpMode, constants::directories::*, ImagePullPolicy};
 
 use crate::{
     dispatcher::{config::XdpDispatcherConfig, Dispatcher},
     errors::BpfletError,
     helper::should_map_be_pinned,
-    oci::manager::{BytecodeImage, Command as ImageManagerCommand},
     map::{calc_map_pin_path, create_map_pin_path},
+    oci::manager::{BytecodeImage, Command as ImageManagerCommand},
     program::{program::Program, xdp::XdpProgram},
 };
 

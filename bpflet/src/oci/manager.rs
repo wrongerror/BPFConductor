@@ -1,6 +1,5 @@
 use std::io::{copy, Read};
 
-use bpflet_api::ImagePullPolicy;
 use flate2::read::GzDecoder;
 use log::{debug, info, trace};
 use oci_distribution::{
@@ -17,11 +16,10 @@ use sled::Db;
 use tar::Archive;
 use tokio::{
     select,
-    sync::{
-        mpsc::Receiver,
-        oneshot,
-    },
+    sync::{mpsc::Receiver, oneshot},
 };
+
+use bpflet_api::ImagePullPolicy;
 
 use crate::{
     oci::{cosign::CosignVerifier, ImageError},
@@ -349,14 +347,14 @@ impl ImageManager {
                     })?
                     .expect("Image manifest is empty"),
             )
-                .unwrap(),
+            .unwrap(),
         )
-            .map_err(|e| {
-                ImageError::DatabaseError(
-                    "failed to parse image manifest from db".to_string(),
-                    e.to_string(),
-                )
-            })?;
+        .map_err(|e| {
+            ImageError::DatabaseError(
+                "failed to parse image manifest from db".to_string(),
+                e.to_string(),
+            )
+        })?;
 
         let bytecode_sha = &manifest.layers[0].digest;
 
@@ -425,14 +423,14 @@ impl ImageManager {
                     })?
                     .expect("Image manifest is empty"),
             )
-                .unwrap(),
+            .unwrap(),
         )
-            .map_err(|e| {
-                ImageError::DatabaseError(
-                    "failed to parse db entry to image manifest".to_string(),
-                    e.to_string(),
-                )
-            })?;
+        .map_err(|e| {
+            ImageError::DatabaseError(
+                "failed to parse db entry to image manifest".to_string(),
+                e.to_string(),
+            )
+        })?;
 
         let config_sha = &manifest.config.digest.split(':').collect::<Vec<&str>>()[1];
 

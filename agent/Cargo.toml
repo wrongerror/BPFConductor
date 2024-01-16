@@ -1,0 +1,11 @@
+[package]
+description = "A system daemon for run userspace program and manage kernel space program via bpflet"
+name = "agent"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "agent"
+path = "src/main.rs"
+
+[dependencies]

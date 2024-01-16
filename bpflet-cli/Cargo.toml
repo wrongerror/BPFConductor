@@ -1,0 +1,33 @@
+[package]
+name = "bpfctl"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "bpfctl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bpflet-api = { workspace = true }
+clap = { workspace = true, features = [
+    "color",
+    "derive",
+    "help",
+    "std",
+    "suggestions",
+    "usage",
+] }
+caps = { workspace = true }
+comfy-table = { workspace = true, features = ["tty"] }
+env_logger = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true, features = ["std"] }
+log = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full", "signal"] }
+tokio-stream = { workspace = true, features = ["net"] }
+tonic = { workspace = true, features = ["transport"] }
+tower = { workspace = true }

@@ -40,7 +40,10 @@ pub(crate) fn get_ifindex(iface: &str) -> Result<u32, BpfletError> {
 
 pub(crate) async fn set_file_permissions(path: &str, mode: u32) {
     // Set the permissions on the file based on input
-    if tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).await.is_err() {
+    if tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        .await
+        .is_err()
+    {
         warn!("Unable to set permissions on file {}. Continuing", path);
     }
 }
@@ -59,10 +62,9 @@ pub(crate) fn create_bpffs(directory: &str) -> Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        use nix::{
-            mount::{mount, MsFlags},
-        };
-        let flags = MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_NOEXEC | MsFlags::MS_RELATIME;
+        use nix::mount::{mount, MsFlags};
+        let flags =
+            MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_NOEXEC | MsFlags::MS_RELATIME;
         mount::<str, str, str, str>(None, directory, Some("bpf"), flags, None)
             .with_context(|| format!("unable to create bpffs at {directory}"))
     }

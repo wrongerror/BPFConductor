@@ -1,5 +1,6 @@
 use hex::FromHex;
-use crate::cli::args::GlobalArg;
+
+use crate::args::GlobalArg;
 
 pub(crate) fn parse_key_val(s: &str) -> Result<(String, String), std::io::Error> {
     let pos = s.find('=').ok_or(std::io::ErrorKind::InvalidInput)?;

@@ -1,7 +1,8 @@
 use anyhow::bail;
+
 use bpflet_api::v1::{bpflet_client::BpfletClient, ListRequest};
 
-use crate::cli::{args::ListArgs, select_channel, table::ProgTable};
+use crate::{args::ListArgs, select_channel, table::ProgTable};
 
 pub(crate) async fn execute_list(args: &ListArgs) -> anyhow::Result<()> {
     let channel = select_channel().unwrap();

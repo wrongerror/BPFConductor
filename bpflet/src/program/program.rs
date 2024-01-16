@@ -1,41 +1,30 @@
-use std::path::{Path, PathBuf};
-use std::fs;
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use chrono::{DateTime, Local};
+
 use aya::programs::ProgramInfo as AyaProgInfo;
-use tokio::sync::mpsc::Sender;
+use chrono::{DateTime, Local};
 use log::info;
 use rand::Rng;
+use tokio::sync::mpsc::Sender;
 
 use bpflet_api::v1::{
-    AttachInfo,
-    BytecodeLocation,
-    KernelProgramInfo as V1KernelProgramInfo,
-    KprobeAttachInfo,
-    ProgramInfo as V1ProgramInfo,
-    TcAttachInfo,
-    TracepointAttachInfo,
-    UprobeAttachInfo,
-    XdpAttachInfo,
-    attach_info::Info,
-    bytecode_location::Location as V1Location,
+    attach_info::Info, bytecode_location::Location as V1Location, AttachInfo, BytecodeLocation,
+    KernelProgramInfo as V1KernelProgramInfo, KprobeAttachInfo, ProgramInfo as V1ProgramInfo,
+    TcAttachInfo, TracepointAttachInfo, UprobeAttachInfo, XdpAttachInfo,
 };
-use bpflet_api::{ProgramType, constants::directories::RTDIR_FS};
-use crate::BPFLET_DB;
+use bpflet_api::{constants::directories::*, ProgramType};
+
 use crate::dispatcher::{DispatcherId, DispatcherInfo};
 use crate::errors::BpfletError;
 use crate::helper::{bytes_to_bool, bytes_to_string, bytes_to_u32};
 use crate::oci::manager::{BytecodeImage, Command as ImageManagerCommand};
 use crate::program::{
-    kprobe::KprobeProgram,
-    tc::TcProgram,
-    tracepoint::TracepointProgram,
-    uprobe::UprobeProgram,
-    xdp::XdpProgram,
-    Direction,
-    Location,
+    kprobe::KprobeProgram, tc::TcProgram, tracepoint::TracepointProgram, uprobe::UprobeProgram,
+    xdp::XdpProgram, Direction, Location,
 };
+use crate::BPFLET_DB;
 
 #[derive(Debug, Clone)]
 pub(crate) enum Program {
@@ -416,15 +405,15 @@ impl ProgramData {
                 Ok(())
             }
         }
-            .map_err(|e| {
-                BpfletError::DatabaseError(
-                    format!(
-                        "Unable to insert location database entries into tree {:?}",
-                        self.db_tree.name()
-                    ),
-                    e.to_string(),
-                )
-            })
+        .map_err(|e| {
+            BpfletError::DatabaseError(
+                format!(
+                    "Unable to insert location database entries into tree {:?}",
+                    self.db_tree.name()
+                ),
+                e.to_string(),
+            )
+        })
     }
 
     pub(crate) fn get_location(&self) -> Result<Location, BpfletError> {

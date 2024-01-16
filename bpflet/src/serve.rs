@@ -1,4 +1,5 @@
 use std::{fs::remove_file, path::Path};
+
 use log::{debug, info};
 use tokio::{
     join,
@@ -12,21 +13,14 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
 use bpflet_api::{
-    config::Config,
-    constants::directories::RTPATH_BPFLET_SOCKET,
-    v1::{
-        bpflet_server::BpfletServer
-    },
+    config::Config, constants::directories::RTPATH_BPFLET_SOCKET, v1::bpflet_server::BpfletServer,
 };
 
-use crate::{BPFLET_DB, handler::ProgHandler, manager};
-use crate::oci::manager::ImageManager;
 use crate::helper::{set_file_permissions, SOCK_MODE};
+use crate::oci::manager::ImageManager;
+use crate::{handler::ProgHandler, manager, BPFLET_DB};
 
-
-pub async fn serve(
-    config: &Config,
-) -> anyhow::Result<()> {
+pub async fn serve(config: &Config) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel(32);
     let handler = ProgHandler::new(tx);
     let service = BpfletServer::new(handler);
@@ -91,12 +85,9 @@ async fn serve_unix(
 
     let serve = Server::builder()
         .add_service(service)
-        .serve_with_incoming_shutdown(
-            uds_stream,
-            async move {
-                shutdown_handler().await;
-            },
-        );
+        .serve_with_incoming_shutdown(uds_stream, async move {
+            shutdown_handler().await;
+        });
 
     Ok(tokio::spawn(async move {
         info!("Listening on {}", path);

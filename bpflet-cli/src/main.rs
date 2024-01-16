@@ -1,43 +1,29 @@
-pub(crate) mod args;
-mod load;
-mod image;
-mod system;
-mod table;
-mod unload;
-mod get;
-mod list;
-mod helper;
-
-use args::Commands;
-use bpflet_api::{
-    config::Config,
-    constants::directories::{CFGPATH_BPFLET_CONFIG, RTPATH_BPFLET_SOCKET},
-};
+use clap::Parser;
 use log::warn;
-use std::fs;
 use tokio::net::UnixStream;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
 
+use args::Commands;
+use bpflet_api::constants::directories::RTPATH_BPFLET_SOCKET;
+
+mod args;
+mod get;
+mod helper;
+mod image;
+mod list;
+mod load;
+mod table;
+mod unload;
+
 impl Commands {
     pub(crate) async fn execute(&self) -> Result<(), anyhow::Error> {
-        let config = if let Ok(c) = fs::read_to_string(CFGPATH_BPFLET_CONFIG) {
-            c.parse().unwrap_or_else(|_| {
-                warn!("Unable to parse config file, using defaults");
-                Config::default()
-            })
-        } else {
-            warn!("Unable to read config file, using defaults");
-            Config::default()
-        };
-
         match self {
             Commands::Load(l) => l.execute().await,
             Commands::Unload(args) => unload::execute_unload(args).await,
             Commands::Get(args) => get::execute_get(args).await,
             Commands::List(args) => list::execute_list(args).await,
             Commands::Image(i) => i.execute().await,
-            Commands::System(s) => s.execute(&config).await,
         }
     }
 }
@@ -54,4 +40,10 @@ fn select_channel() -> Option<Channel> {
     let channel = address
         .connect_with_connector_lazy(service_fn(move |_: Uri| UnixStream::connect(path.clone())));
     Some(channel)
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = args::Cli::parse();
+    cli.command.execute().await
 }

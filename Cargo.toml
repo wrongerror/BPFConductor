@@ -1,7 +1,9 @@
 [workspace]
 members = [
+    "agent",
     "bpflet",
     "bpflet-api",
+    "bpflet-cli",
     "xtask",
 ]
 resolver = "2"

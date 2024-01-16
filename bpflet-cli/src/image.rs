@@ -1,10 +1,11 @@
 use base64::{engine::general_purpose, Engine};
+
 use bpflet_api::{
     v1::{bpflet_client::BpfletClient, BytecodeImage, PullBytecodeRequest},
     ImagePullPolicy,
 };
 
-use crate::cli::{
+use crate::{
     args::{ImageSubCommand, PullBytecodeArgs},
     select_channel,
 };

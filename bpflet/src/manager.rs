@@ -3,22 +3,17 @@ use std::{
     convert::TryInto,
     path::{Path, PathBuf},
 };
-use anyhow::anyhow;
 
+use anyhow::anyhow;
 use aya::{
-    BpfLoader,
     programs::{
-        KProbe, kprobe::KProbeLink, links::FdLink, loaded_programs,
-        trace_point::TracePointLink, TracePoint, UProbe, uprobe::UProbeLink,
+        kprobe::KProbeLink, links::FdLink, loaded_programs, trace_point::TracePointLink,
+        uprobe::UProbeLink, KProbe, TracePoint, UProbe,
     },
-};
-use bpflet_api::{
-    config::Config,
-    constants::directories::*,
-    ProbeType::{self, *},
-    ProgramType,
+    BpfLoader,
 };
 use log::{debug, info};
+use tokio::fs::read_dir;
 use tokio::{
     fs::remove_dir_all,
     select,
@@ -27,24 +22,31 @@ use tokio::{
         oneshot,
     },
 };
-use tokio::fs::read_dir;
 
+use bpflet_api::{
+    config::Config,
+    constants::directories::*,
+    ProbeType::{self, *},
+    ProgramType,
+};
+
+use crate::map::BpfMap;
 use crate::{
-    BPFLET_DB,
-    command::{
-        Command,
-        PullBytecodeArgs, UnloadArgs,
-    },
-    dispatcher::{
-        Dispatcher, DispatcherId, DispatcherInfo, TcDispatcher, XdpDispatcher}, errors::BpfletError, helper::{bytes_to_string, get_ifindex, set_dir_permissions, should_map_be_pinned}, map, map::{DispatcherMap, MAPS_MODE, ProgramMap}, oci::manager::Command as ImageManagerCommand,
+    command::{Command, PullBytecodeArgs, UnloadArgs},
+    dispatcher::{Dispatcher, DispatcherId, DispatcherInfo, TcDispatcher, XdpDispatcher},
+    errors::BpfletError,
+    helper::{bytes_to_string, get_ifindex, set_dir_permissions, should_map_be_pinned},
+    map,
+    map::{DispatcherMap, ProgramMap, MAPS_MODE},
+    oci::manager::Command as ImageManagerCommand,
     program::{
+        program::{Program, ProgramData},
         Direction,
         Direction::{Egress, Ingress},
-        program::{Program, ProgramData},
     },
     serve::shutdown_handler,
+    BPFLET_DB,
 };
-use crate::map::BpfMap;
 
 pub(crate) struct BpfManager {
     config: Config,
@@ -54,7 +56,6 @@ pub(crate) struct BpfManager {
     commands: Receiver<Command>,
     image_manager: Sender<ImageManagerCommand>,
 }
-
 
 impl BpfManager {
     pub(crate) fn new(
@@ -160,7 +161,7 @@ impl BpfManager {
                         ProgramType::Tc,
                         Some(direction),
                     )
-                        .await?;
+                    .await?;
                 }
                 _ => return Err(anyhow!("invalid program type {:?}", program_type)),
             }
@@ -297,16 +298,16 @@ impl BpfManager {
             old_dispatcher,
             self.image_manager.clone(),
         )
-            .await
-            .or_else(|e| {
-                // If kernel ID was never set there's no pins to cleanup here so just continue
-                if program.get_data().get_id().is_ok() {
-                    program
-                        .delete()
-                        .map_err(BpfletError::BpfletProgramDeleteError)?;
-                }
-                Err(e)
-            })?;
+        .await
+        .or_else(|e| {
+            // If kernel ID was never set there's no pins to cleanup here so just continue
+            if program.get_data().get_id().is_ok() {
+                program
+                    .delete()
+                    .map_err(BpfletError::BpfletProgramDeleteError)?;
+            }
+            Err(e)
+        })?;
 
         self.dispatchers.insert(did, dispatcher);
         let id = program.get_data().get_id()?;
@@ -359,9 +360,7 @@ impl BpfManager {
                 let tracepoint: &mut TracePoint = raw_program.try_into()?;
 
                 tracepoint.load()?;
-                let _ = program
-                    .get_data_mut()
-                    .set_kernel_info(&tracepoint.info()?);
+                let _ = program.get_data_mut().set_kernel_info(&tracepoint.info()?);
 
                 let id = program.data.get_id()?;
 
@@ -642,7 +641,7 @@ impl BpfManager {
             old_dispatcher,
             self.image_manager.clone(),
         )
-            .await?;
+        .await?;
         self.dispatchers.insert(did, dispatcher);
         Ok(())
     }
@@ -696,7 +695,7 @@ impl BpfManager {
                 old_dispatcher,
                 self.image_manager.clone(),
             )
-                .await?;
+            .await?;
             self.dispatchers.insert(did, dispatcher);
         } else {
             debug!("No dispatcher found in rebuild_multiattach_dispatcher() for {did:?}");

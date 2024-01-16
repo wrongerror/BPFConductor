@@ -1,7 +1,7 @@
+use thiserror::Error;
+
 pub(crate) mod cosign;
 pub(crate) mod manager;
-
-use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ImageError {

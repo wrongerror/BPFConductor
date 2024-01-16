@@ -1,6 +1,6 @@
 use bpflet_api::v1::{bpflet_client::BpfletClient, GetRequest};
 
-use crate::cli::{args::GetArgs, select_channel, table::ProgTable};
+use crate::{args::GetArgs, select_channel, table::ProgTable};
 
 pub(crate) async fn execute_get(args: &GetArgs) -> Result<(), anyhow::Error> {
     let channel = select_channel().expect("failed to select channel");

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::bail;
+
 use bpflet_api::{
     v1::{
         attach_info::Info, bpflet_client::BpfletClient, bytecode_location::Location, AttachInfo,
@@ -10,7 +11,7 @@ use bpflet_api::{
     ProgramType, TcProceedOn, XdpProceedOn,
 };
 
-use crate::cli::{
+use crate::{
     args::{GlobalArg, LoadCommands, LoadFileArgs, LoadImageArgs, LoadSubcommand},
     select_channel,
     table::ProgTable,
