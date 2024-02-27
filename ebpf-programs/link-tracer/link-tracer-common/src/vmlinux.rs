@@ -48580,4 +48580,3 @@ pub struct cpuidle_device_kobj {
     pub kobj_unregister: completion,
     pub kobj: kobject,
 }
-
