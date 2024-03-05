@@ -1,4 +1,7 @@
+mod collector;
 mod resovler;
+mod server;
+mod tracer;
 
 use aya::programs::{KProbe, TracePoint};
 use aya::{include_bytes_aligned, Bpf};

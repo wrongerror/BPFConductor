@@ -11,15 +11,21 @@ aya-log = { git = "https://github.com/aya-rs/aya" }
 link-tracer-common = { path = "../link-tracer-common", features = ["user"] }
 anyhow = "1"
 env_logger = "0.11.1"
+h2 = "0.4.2"
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["full"] }
+hyper = { version = "1.2.0", features = ["full"] }
 k8s-openapi = { version = "0.21.0", features = ["v1_24"] }
 kube = { version = "0.88.1", features = ["default", "derive", "runtime", "unstable-runtime"] }
 libc = "0.2"
 log = "0.4"
+prometheus-client = "0.22.1"
 tokio = { version = "1.25", features = ["macros", "rt", "rt-multi-thread", "net", "signal"] }
 tracing = "0.1.36"
 tracing-subscriber = "0.3.3"
 futures = "0.3.30"
 serde_yaml = "0.9.31"
+bytes = "1.5.0"
 
 [dev-dependencies]
 tokio = { version = "1.25", features = ["full"] }
