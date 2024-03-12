@@ -1,4 +1,0 @@
-[workspace]
-members = ["xtask", "link-tracer", "link-tracer-common"]
-
-resolver = "2"

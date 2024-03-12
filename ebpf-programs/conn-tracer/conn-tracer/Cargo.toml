@@ -1,5 +1,5 @@
 [package]
-name = "link-tracer"
+name = "conn-tracer"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -8,9 +8,10 @@ publish = false
 ahash = "0.8.7"
 aya = { git = "https://github.com/aya-rs/aya", features = ["async_tokio"] }
 aya-log = { git = "https://github.com/aya-rs/aya" }
-link-tracer-common = { path = "../link-tracer-common", features = ["user"] }
+conn-tracer-common = { path = "../conn-tracer-common", features = ["user"] }
 anyhow = "1"
 env_logger = "0.11.1"
+fnv = "1.0.7"
 h2 = "0.4.2"
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["full"] }
@@ -31,5 +32,9 @@ bytes = "1.5.0"
 tokio = { version = "1.25", features = ["full"] }
 
 [[bin]]
-name = "link-tracer"
+name = "conn-tracer"
 path = "src/main.rs"
+
+[lib]
+name = "conn_tracer"
+path = "src/lib.rs"

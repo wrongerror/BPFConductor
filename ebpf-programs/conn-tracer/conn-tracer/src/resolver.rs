@@ -1,3 +1,4 @@
+use std::net::Ipv4Addr;
 use std::sync::{Arc, RwLock};
 
 use ahash::AHashMap;
@@ -17,7 +18,7 @@ use log::info;
 
 type Cache<K, V> = Arc<RwLock<AHashMap<K, Arc<V>>>>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Workload {
     pub name: String,
     pub namespace: String,
@@ -98,9 +99,11 @@ impl Resolver {
         Ok(resolver)
     }
 
-    pub fn resolve_ip(&self, ip: &str) -> Option<Arc<Workload>> {
+    pub fn resolve_ip(&self, ip: u32) -> Option<Arc<Workload>> {
         let ips = self.ips.read().unwrap();
-        ips.get(ip).map(|w| w.clone())
+        let ip_addr = Ipv4Addr::from(ip);
+        let ip_string = ip_addr.to_string();
+        ips.get(&ip_string).map(|w| w.clone())
     }
 
     async fn get_controller_of_owner(
@@ -493,8 +496,11 @@ impl Resolver {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::str::FromStr;
+
     use kube::ResourceExt;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_new_resolver() {
@@ -561,7 +567,7 @@ mod tests {
             namespace: "kube-system".to_string(),
             kind: "Service".to_string(),
         });
-        let result = r.resolve_ip(ip);
+        let result = r.resolve_ip(u32::from(Ipv4Addr::from_str(ip).unwrap()));
         assert_eq!(result, Some(except));
     }
 }

@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use http_body_util::{BodyExt, Empty, Full};
+use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -75,11 +75,10 @@ mod tests {
     use hyper::body::Buf;
     use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue};
     use prometheus_client::metrics::family::Family;
-    use tokio::net::TcpStream;
+
+    use crate::utils::fetch_url;
 
     use super::*;
-
-    type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
     #[tokio::test]
     async fn test_start_metrics_server() {
@@ -106,7 +105,6 @@ mod tests {
         #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
         enum Method {
             GET,
-            PUT,
         }
 
         // Create a sample counter metric family utilizing the above custom label
@@ -160,36 +158,5 @@ mod tests {
 
         assert_eq!(body_string, "# HELP http_requests Number of HTTP requests received.\n# TYPE http_requests counter\nhttp_requests_total{method=\"GET\",path=\"/metrics\"} 1\n# EOF\n");
         server_handle.abort();
-    }
-
-    async fn fetch_url(url: hyper::Uri) -> Result<Response<hyper::body::Incoming>> {
-        let host = url.host().expect("uri has no host");
-        let port = url.port_u16().unwrap_or(80);
-        let addr = format!("{}:{}", host, port);
-        let stream = TcpStream::connect(addr).await?;
-        let io = TokioIo::new(stream);
-
-        let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-        tokio::task::spawn(async move {
-            if let Err(err) = conn.await {
-                println!("Connection failed: {:?}", err);
-            }
-        });
-
-        let authority = url.authority().unwrap().clone();
-
-        let path = url.path();
-        let req = Request::builder()
-            .uri(path)
-            .header(hyper::header::HOST, authority.as_str())
-            .body(Empty::<Bytes>::new())?;
-
-        let res = sender.send_request(req).await?;
-
-        println!("Response: {}", res.status());
-        println!("Headers: {:#?}\n", res.headers());
-        println!("\n\nDone!");
-
-        Ok(res)
     }
 }

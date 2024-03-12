@@ -7,7 +7,7 @@ use aya_bpf::{
     programs::{ProbeContext, TracePointContext},
 };
 use aya_log_ebpf::info;
-use link_tracer_common::{
+use conn_tracer_common::{
     vmlinux::{sock, sock_common, tcp_sock},
     ConnectionKey, ConnectionStats, SockInfo, AF_INET, AF_INET6, CONNECTION_ROLE_CLIENT,
     CONNECTION_ROLE_SERVER, CONNECTION_ROLE_UNKNOWN, INET_SOCK_NEWSTATE_OFFSET,
@@ -23,11 +23,11 @@ static mut CONNECTIONS: aya_bpf::maps::HashMap<ConnectionKey, ConnectionStats> =
     aya_bpf::maps::HashMap::<ConnectionKey, ConnectionStats>::with_max_entries(MAX_CONNECTIONS, 0);
 
 #[kprobe]
-pub fn link_tracer(ctx: ProbeContext) -> u32 {
-    try_link_tracer(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
+pub fn sock_conn_tracer(ctx: ProbeContext) -> u32 {
+    try_sock_conn_tracer(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_link_tracer(ctx: ProbeContext) -> Result<u32, i64> {
+fn try_sock_conn_tracer(ctx: ProbeContext) -> Result<u32, i64> {
     // first argument to tcp_data_queue is a struct sock*
     let sk: *const sock = ctx.arg(0).ok_or(1i64)?;
     let mut conn_key = ConnectionKey::default();
@@ -40,15 +40,6 @@ fn try_link_tracer(ctx: ProbeContext) -> Result<u32, i64> {
     }
 
     if let Some(sock_info) = unsafe { SOCKETS.get(&sk) } {
-        info!(
-            &ctx,
-            "AF_INET EXIST SOCK FROM : {:i}:{}, TO: {:i}:{}; PID: {}",
-            conn_key.src_addr,
-            conn_key.src_port as u16,
-            conn_key.dest_addr,
-            conn_key.dest_port as u16,
-            sock_info.pid,
-        );
         conn_key.id = sock_info.id;
         conn_key.pid = sock_info.pid;
         conn_key.role = sock_info.role;
@@ -68,15 +59,7 @@ fn try_link_tracer(ctx: ProbeContext) -> Result<u32, i64> {
         is_active: 1,
         role: get_sock_role(sk),
     };
-    info!(
-        &ctx,
-        "AF_INET NEW SOCK FROM : {:i}:{}, TO: {:i}:{}; PID: {}",
-        conn_key.src_addr,
-        conn_key.src_port as u16,
-        conn_key.dest_addr,
-        conn_key.dest_port as u16,
-        sock_info.pid,
-    );
+
     unsafe {
         SOCKETS.insert(&sk, &sock_info, 0_u64)?;
     }
@@ -149,7 +132,7 @@ fn get_unique_id() -> u32 {
 }
 
 #[tracepoint]
-pub fn state_tracer(ctx: TracePointContext) -> i64 {
+pub fn sock_state_tracer(ctx: TracePointContext) -> i64 {
     try_state_tracer(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
@@ -192,7 +175,7 @@ fn handle_tcp_syn_recv(sk: *const sock) -> Result<i64, i64> {
         id: get_unique_id(),
         pid: 0,
         is_active: 1,
-        role: CONNECTION_ROLE_UNKNOWN,
+        role: CONNECTION_ROLE_SERVER,
     };
 
     unsafe {

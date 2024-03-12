@@ -1,17 +1,17 @@
 [package]
-name = "link-tracer-ebpf"
+name = "conn-tracer-ebpf"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 aya-bpf = { git = "https://github.com/aya-rs/aya" }
 aya-log-ebpf = { git = "https://github.com/aya-rs/aya" }
-link-tracer-common = { path = "../link-tracer-common" }
+conn-tracer-common = { path = "../conn-tracer-common" }
 network-types = "0.0.5"
 log = "0.4.20"
 
 [[bin]]
-name = "link-tracer"
+name = "conn-tracer"
 path = "src/main.rs"
 
 [profile.dev]
