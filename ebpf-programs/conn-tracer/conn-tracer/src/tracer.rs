@@ -1,9 +1,11 @@
 use std::collections;
 use std::net::Ipv4Addr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::Error;
 use aya::maps::{HashMap, MapData};
+use tokio::time;
 
 use conn_tracer_common::{
     ConnectionKey, ConnectionStats, CONNECTION_ROLE_CLIENT, CONNECTION_ROLE_SERVER,
@@ -20,11 +22,11 @@ pub(crate) struct Connection {
     pub(crate) server_port: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConnectionTracer {
     resolver: Resolver,
-    tcp_conns_map: HashMap<MapData, ConnectionKey, ConnectionStats>,
-    inactive_conns: collections::HashMap<Connection, u64>,
+    tcp_conns_map: Arc<Mutex<HashMap<MapData, ConnectionKey, ConnectionStats>>>,
+    past_conns_map: Arc<Mutex<collections::HashMap<Connection, u64>>>,
 }
 
 impl ConnectionTracer {
@@ -32,49 +34,68 @@ impl ConnectionTracer {
         resolver: Resolver,
         tcp_conns_map: HashMap<MapData, ConnectionKey, ConnectionStats>,
     ) -> Self {
-        Self {
+        let conn_tracer = Self {
             resolver,
-            tcp_conns_map,
-            inactive_conns: collections::HashMap::new(),
-        }
+            tcp_conns_map: Arc::new(Mutex::new(tcp_conns_map)),
+            past_conns_map: Arc::new(Mutex::new(collections::HashMap::new())),
+        };
+
+        // Start a new tokio task to periodically call poll
+        let mut conn_tracer_cloned = conn_tracer.clone();
+        tokio::spawn(async move {
+            let mut interval = time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                match conn_tracer_cloned.poll() {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("Error polling connections: {:?}", e),
+                }
+            }
+        });
+
+        conn_tracer
     }
 
     // a single polling from the eBPF maps
     // iterating the traces from the kernel-space, summing each network connection
     pub fn poll(&mut self) -> Result<collections::HashMap<Connection, u64>, Error> {
         let mut keys_to_remove = Vec::new();
-        let mut current_conns = collections::HashMap::new();
+        let mut current_conns: collections::HashMap<Connection, u64> = collections::HashMap::new();
 
-        for item in self.tcp_conns_map.iter() {
-            let (key, stats) = item?;
-            if stats.is_active == 0 {
-                keys_to_remove.push(key);
-                continue;
-            }
-            if key.src_addr == key.dest_addr || self.is_loopback_address(key.dest_addr) {
-                continue;
-            }
-            if key.role == CONNECTION_ROLE_UNKNOWN {
-                continue;
+        {
+            let tcp_conns_map = self.tcp_conns_map.lock().unwrap();
+            for item in tcp_conns_map.iter() {
+                let (key, stats) = item?;
+                if stats.is_active == 0 {
+                    keys_to_remove.push(key);
+                    continue;
+                }
+                if key.src_addr == key.dest_addr || self.is_loopback_address(key.dest_addr) {
+                    continue;
+                }
+                if key.role == CONNECTION_ROLE_UNKNOWN {
+                    continue;
+                }
+
+                if let Ok(connection) = self.build_connection(key) {
+                    current_conns
+                        .entry(connection.clone())
+                        .and_modify(|e| *e += stats.bytes_sent)
+                        .or_insert(stats.bytes_sent);
+                }
             }
 
-            let connection = self.build_connection(key)?;
-            current_conns
-                .entry(connection)
-                .and_modify(|e| *e += stats.bytes_sent)
-                .or_insert(stats.bytes_sent);
-        }
-
-        // add inactive connections to the current connections
-        for (conn, bytes_sent) in self.inactive_conns.iter() {
-            current_conns
-                .entry(conn.clone())
-                .and_modify(|e| *e += *bytes_sent)
-                .or_insert(*bytes_sent);
+            let past_conns_map = self.past_conns_map.lock().unwrap();
+            for (conn, bytes_sent) in past_conns_map.iter() {
+                current_conns
+                    .entry(conn.clone())
+                    .and_modify(|e| *e += *bytes_sent)
+                    .or_insert(*bytes_sent);
+            }
         }
 
         for key in keys_to_remove {
-            self.handle_inactive_connection(key)?;
+            let _ = self.handle_inactive_connection(key);
         }
 
         Ok(current_conns)
@@ -111,15 +132,17 @@ impl ConnectionTracer {
     }
 
     fn handle_inactive_connection(&mut self, key: ConnectionKey) -> Result<(), Error> {
-        let throughput = match self.tcp_conns_map.get(&key, 0) {
+        let mut tcp_conns_map = self.tcp_conns_map.lock().unwrap();
+        let throughput = match tcp_conns_map.get(&key, 0) {
             Ok(stats) => stats.bytes_sent,
             Err(_) => 0,
         };
 
-        self.tcp_conns_map.remove(&key)?;
+        tcp_conns_map.remove(&key)?;
 
+        let mut past_conns_map = self.past_conns_map.lock().unwrap();
         let connection = self.build_connection(key)?;
-        self.inactive_conns
+        past_conns_map
             .entry(connection)
             .and_modify(|e| *e += throughput)
             .or_insert(throughput);
@@ -147,7 +170,7 @@ mod tests {
         }
 
         let tcp_conns_map: HashMap<_, ConnectionKey, ConnectionStats> = Map::HashMap(
-            MapData::from_pin(bpflet_maps.join("238/CONNECTIONS"))
+            MapData::from_pin(bpflet_maps.join("244/CONNECTIONS"))
                 .expect("no maps named CONNECTIONS"),
         )
         .try_into()

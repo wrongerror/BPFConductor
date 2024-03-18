@@ -16,11 +16,11 @@ use conn_tracer_common::{
 
 #[map(name = "SOCKETS")]
 static mut SOCKETS: aya_bpf::maps::HashMap<*const sock, SockInfo> =
-    aya_bpf::maps::HashMap::<*const sock, SockInfo>::with_max_entries(MAX_CONNECTIONS, 0);
+    aya_bpf::maps::HashMap::<*const sock, SockInfo>::pinned(MAX_CONNECTIONS, 0);
 
 #[map(name = "CONNECTIONS")]
 static mut CONNECTIONS: aya_bpf::maps::HashMap<ConnectionKey, ConnectionStats> =
-    aya_bpf::maps::HashMap::<ConnectionKey, ConnectionStats>::with_max_entries(MAX_CONNECTIONS, 0);
+    aya_bpf::maps::HashMap::<ConnectionKey, ConnectionStats>::pinned(MAX_CONNECTIONS, 0);
 
 #[kprobe]
 pub fn sock_conn_tracer(ctx: ProbeContext) -> u32 {
@@ -108,7 +108,7 @@ fn parse_sock_data(
             conn_key.dest_port = dest_port as u32;
             Ok(0)
         }
-        AF_INET6 => Ok(0),
+        AF_INET6 => Err(1i64),
         _ => Ok(0),
     }
 }

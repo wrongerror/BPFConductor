@@ -1,12 +1,12 @@
 use std::path::Path;
 use std::sync::RwLock;
+use std::time::Duration;
 
 use anyhow::Error;
 use aya::maps::{HashMap, Map, MapData};
 use log::info;
 use prometheus_client::collector::Collector;
 use prometheus_client::encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric};
-use prometheus_client::metrics::counter::ConstCounter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Unit;
@@ -47,7 +47,7 @@ impl ConnectionCollector {
         }
 
         let tcp_conns_map: HashMap<_, ConnectionKey, ConnectionStats> = Map::HashMap(
-            MapData::from_pin(bpflet_maps.join("238/CONNECTIONS"))
+            MapData::from_pin(bpflet_maps.join("244/CONNECTIONS"))
                 .expect("no maps named CONNECTIONS"),
         )
         .try_into()?;
@@ -69,7 +69,7 @@ impl Collector for ConnectionCollector {
 
         let conns = match tracer.poll() {
             Ok(conns) => conns,
-            Err(e) => {
+            Err(_) => {
                 return Err(std::fmt::Error);
             }
         };
@@ -150,7 +150,7 @@ mod tests {
         });
 
         // Add a delay to ensure the server has time to start
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(600)).await;
 
         // send a request to the server
         let url = format!("http://{}/metrics", metrics_addr);
