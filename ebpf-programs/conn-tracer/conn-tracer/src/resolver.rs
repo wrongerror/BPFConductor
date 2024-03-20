@@ -299,7 +299,7 @@ impl Resolver {
                             addr.address.clone(),
                             Arc::new(Workload {
                                 name: node.name_any(),
-                                namespace: "".to_string(),
+                                namespace: "node".to_string(),
                                 kind: "Node".to_string(),
                             }),
                         );

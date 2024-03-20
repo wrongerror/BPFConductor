@@ -73,7 +73,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut registry = Registry::default();
     registry.register_collector(collector);
 
-    let metrics_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8001);
+    let metrics_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 8001);
 
     let server_handle = tokio::spawn(async move {
         start_metrics_server(metrics_addr, registry).await.unwrap();

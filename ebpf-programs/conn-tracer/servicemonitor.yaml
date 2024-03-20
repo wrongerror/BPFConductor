@@ -1,0 +1,23 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: conn-tracer-metrics-monitor
+  namespace: kubesphere-monitoring-system
+spec:
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  selector:
+    matchLabels:
+      name: conn-tracer
+  endpoints:
+    - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      scrapeTimeout: "30s"
+      interval: "30s"
+      honorLabels: true
+      port: http-metrics
+      path: /metrics
+      scheme: http
+      tlsConfig:
+        insecureSkipVerify: true
+  jobLabel: "conn-tracer"

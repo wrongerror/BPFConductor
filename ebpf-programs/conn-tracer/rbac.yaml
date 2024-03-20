@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: conn-tracer
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: conn-tracer
+  namespace: kube-system
+rules:
+  - apiGroups: [ "*" ]
+    resources:
+      - nodes
+      - pods
+      - services
+      - deployments
+      - daemonsets
+      - statefulsets
+      - replicasets
+      - jobs
+      - cronjobs
+    verbs: [ "*" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: conn-tracer
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: conn-tracer
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: conn-tracer
+  apiGroup: rbac.authorization.k8s.io
+---
+

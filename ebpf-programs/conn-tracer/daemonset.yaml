@@ -1,0 +1,63 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: conn-tracer
+  namespace: kube-system
+  labels:
+    k8s-app: conn-tracer
+spec:
+  selector:
+    matchLabels:
+      name: conn-tracer
+  template:
+    metadata:
+      labels:
+        name: conn-tracer
+    spec:
+      hostNetwork: true
+      serviceAccountName: conn-tracer
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+        # these tolerations are to have the daemonset runnable on control plane nodes
+        # remove them if your control plane nodes should not run pods
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: conn-tracer
+          image: wrongerror/conn-tracer:latest
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            capabilities:
+              add: [ CAP_BPF, CAP_NET_ADMIN ]
+          imagePullPolicy: Always
+          volumeMounts:
+            # This mount is needed to attach tracepoint programs
+            - name: host-debug
+              mountPath: /sys/kernel/debug
+            # Needed for the aya PIN_BY_NAME feature to function correctly
+            - name: default-bpf-fs
+              mountPath: /sys/fs/bpf
+              mountPropagation: Bidirectional
+          env:
+            - name: RUST_LOG
+              value: debug
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+      terminationGracePeriodSeconds: 15
+      volumes:
+        - name: host-debug
+          hostPath:
+            path: /sys/kernel/debug
+        - name: default-bpf-fs
+          hostPath:
+            path: /sys/fs/bpf
+            type: DirectoryOrCreate
+---
