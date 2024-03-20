@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use aya_bpf::{
+use aya_ebpf::{
     helpers::{bpf_get_current_pid_tgid, bpf_ktime_get_ns, bpf_probe_read_kernel},
     macros::{kprobe, map, tracepoint},
     programs::{ProbeContext, TracePointContext},
@@ -15,12 +15,12 @@ use conn_tracer_common::{
 };
 
 #[map(name = "SOCKETS")]
-static mut SOCKETS: aya_bpf::maps::HashMap<*const sock, SockInfo> =
-    aya_bpf::maps::HashMap::<*const sock, SockInfo>::pinned(MAX_CONNECTIONS, 0);
+static mut SOCKETS: aya_ebpf::maps::HashMap<*const sock, SockInfo> =
+    aya_ebpf::maps::HashMap::<*const sock, SockInfo>::pinned(MAX_CONNECTIONS, 0);
 
 #[map(name = "CONNECTIONS")]
-static mut CONNECTIONS: aya_bpf::maps::HashMap<ConnectionKey, ConnectionStats> =
-    aya_bpf::maps::HashMap::<ConnectionKey, ConnectionStats>::pinned(MAX_CONNECTIONS, 0);
+static mut CONNECTIONS: aya_ebpf::maps::HashMap<ConnectionKey, ConnectionStats> =
+    aya_ebpf::maps::HashMap::<ConnectionKey, ConnectionStats>::pinned(MAX_CONNECTIONS, 0);
 
 #[kprobe]
 pub fn sock_conn_tracer(ctx: ProbeContext) -> u32 {

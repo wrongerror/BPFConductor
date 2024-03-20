@@ -1,15 +1,23 @@
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+use aya::maps::{HashMap, MapData};
+use aya::programs::{KProbe, TracePoint};
+use aya::{include_bytes_aligned, Bpf};
+use aya_log::BpfLogger;
+use log::{debug, info, warn};
+use prometheus_client::registry::Registry;
+use tokio::signal;
+
+use conn_tracer_common::{ConnectionKey, ConnectionStats};
+
+use crate::server::start_metrics_server;
+
 mod collector;
 mod resolver;
 mod server;
 mod tracer;
 
 mod utils;
-
-use aya::programs::{KProbe, TracePoint};
-use aya::{include_bytes_aligned, Bpf};
-use aya_log::BpfLogger;
-use log::{debug, info, warn};
-use tokio::signal;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -51,9 +59,31 @@ async fn main() -> Result<(), anyhow::Error> {
     sock_state_tracer.load()?;
     sock_state_tracer.attach("sock", "inet_sock_set_state")?;
 
+    let resolver = resolver::Resolver::new().await?;
+    resolver.wait_for_cache_sync().await?;
+
+    let tcp_conns_map: HashMap<MapData, ConnectionKey, ConnectionStats> = HashMap::try_from(
+        bpf.take_map("CONNECTIONS")
+            .expect("no maps named CONNECTIONS"),
+    )?;
+
+    let collector = collector::ConnectionCollector::new(tcp_conns_map, resolver).await?;
+
+    let collector = Box::new(collector);
+    let mut registry = Registry::default();
+    registry.register_collector(collector);
+
+    let metrics_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8001);
+
+    let server_handle = tokio::spawn(async move {
+        start_metrics_server(metrics_addr, registry).await.unwrap();
+    });
+
     info!("Waiting for Ctrl-C...");
     signal::ctrl_c().await?;
     info!("Exiting...");
+
+    server_handle.abort();
 
     Ok(())
 }

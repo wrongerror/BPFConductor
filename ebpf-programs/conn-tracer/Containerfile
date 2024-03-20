@@ -1,0 +1,13 @@
+FROM rust:1.75
+
+WORKDIR /usr/src/conn-tracer
+COPY . .
+
+RUN rustup install stable
+RUN rustup install nightly
+RUN cargo install bpf-linker
+
+RUN cargo xtask build-ebpf
+RUN cargo build
+
+ENTRYPOINT ["./conn-tracer"]

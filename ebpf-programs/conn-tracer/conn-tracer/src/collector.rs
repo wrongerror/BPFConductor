@@ -33,28 +33,15 @@ struct Labels {
 }
 
 #[derive(Debug)]
-struct ConnectionCollector {
+pub struct ConnectionCollector {
     conn_tracer: RwLock<ConnectionTracer>,
 }
 
 impl ConnectionCollector {
-    pub async fn new(bpf_maps_path: String) -> anyhow::Result<Self, Error> {
-        let bpflet_maps = Path::new(&bpf_maps_path);
-
-        if !bpflet_maps.exists() {
-            info!("BPF maps path does not exist: {}", bpf_maps_path);
-            return Err(Error::msg("BPF maps path does not exist"));
-        }
-
-        let tcp_conns_map: HashMap<_, ConnectionKey, ConnectionStats> = Map::HashMap(
-            MapData::from_pin(bpflet_maps.join("244/CONNECTIONS"))
-                .expect("no maps named CONNECTIONS"),
-        )
-        .try_into()?;
-
-        let resolver = Resolver::new().await?;
-        resolver.wait_for_cache_sync().await?;
-
+    pub async fn new(
+        tcp_conns_map: HashMap<MapData, ConnectionKey, ConnectionStats>,
+        resolver: Resolver,
+    ) -> anyhow::Result<Self, Error> {
         let conn_tracer = ConnectionTracer::new(resolver, tcp_conns_map);
 
         Ok(Self {
@@ -120,15 +107,18 @@ impl Collector for ConnectionCollector {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::server::start_metrics_server;
-    use crate::utils::{fetch_url, fnv_hash};
+    use std::io::Read;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
     use bytes::Buf;
     use http_body_util::BodyExt;
     use hyper::StatusCode;
     use prometheus_client::registry::Registry;
-    use std::io::Read;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use crate::server::start_metrics_server;
+    use crate::utils::{fetch_url, fnv_hash};
+
+    use super::*;
 
     #[test]
     fn test_fnv_hash() {
@@ -138,7 +128,24 @@ mod tests {
     #[tokio::test]
     async fn test_encode() {
         let bpflet_maps_path = "/run/bpflet/fs/maps".to_string();
-        let collector = ConnectionCollector::new(bpflet_maps_path).await.unwrap();
+        let bpflet_maps = Path::new(&bpflet_maps_path);
+
+        if !bpflet_maps.exists() {
+            info!("BPF maps path does not exist: {}", bpflet_maps_path);
+            panic!("BPF maps path does not exist: {}", bpflet_maps_path);
+        }
+
+        let tcp_conns_map: HashMap<_, ConnectionKey, ConnectionStats> = Map::HashMap(
+            MapData::from_pin(bpflet_maps.join("244/CONNECTIONS"))
+                .expect("no maps named CONNECTIONS"),
+        )
+        .try_into()?;
+
+        let resolver = Resolver::new().await?;
+        resolver.wait_for_cache_sync().await?;
+        let collector = ConnectionCollector::new(tcp_conns_map, resolver)
+            .await
+            .unwrap();
         let collector = Box::new(collector);
         let mut registry = Registry::default();
         registry.register_collector(collector);
