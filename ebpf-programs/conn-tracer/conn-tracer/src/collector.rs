@@ -1,10 +1,7 @@
-use std::path::Path;
 use std::sync::RwLock;
-use std::time::Duration;
 
 use anyhow::Error;
-use aya::maps::{HashMap, Map, MapData};
-use log::info;
+use aya::maps::{HashMap, MapData};
 use prometheus_client::collector::Collector;
 use prometheus_client::encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric};
 use prometheus_client::metrics::family::Family;
@@ -109,10 +106,14 @@ impl Collector for ConnectionCollector {
 mod tests {
     use std::io::Read;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::path::Path;
+    use std::time::Duration;
 
+    use aya::maps::Map;
     use bytes::Buf;
     use http_body_util::BodyExt;
     use hyper::StatusCode;
+    use log::info;
     use prometheus_client::registry::Registry;
 
     use crate::server::start_metrics_server;

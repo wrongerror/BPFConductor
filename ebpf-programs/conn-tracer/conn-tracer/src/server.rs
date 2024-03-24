@@ -4,13 +4,13 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use prometheus_client::{encoding::text::encode, metrics::counter::Counter, registry::Registry};
+use prometheus_client::{encoding::text::encode, registry::Registry};
 use tokio::net::TcpListener;
 
 /// Start a HTTP server to report metrics.
@@ -72,8 +72,10 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::string::String;
 
+    use http_body_util::BodyExt;
     use hyper::body::Buf;
     use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue};
+    use prometheus_client::metrics::counter::Counter;
     use prometheus_client::metrics::family::Family;
 
     use crate::utils::fetch_url;

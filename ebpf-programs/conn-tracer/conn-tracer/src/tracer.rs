@@ -66,7 +66,7 @@ impl ConnectionTracer {
             let tcp_conns_map = self.tcp_conns_map.lock().unwrap();
             for item in tcp_conns_map.iter() {
                 let (key, stats) = item?;
-                if stats.is_active == 0 {
+                if stats.is_active != 1 {
                     keys_to_remove.push(key);
                     continue;
                 }
