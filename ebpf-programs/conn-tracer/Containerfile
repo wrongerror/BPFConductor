@@ -1,11 +1,12 @@
 FROM rust:1.75 as builder
 
 WORKDIR /usr/src/conn-tracer
-COPY . .
 
 RUN rustup install stable
 RUN rustup install nightly
 RUN cargo install bpf-linker
+
+COPY . .
 
 RUN cargo xtask build-ebpf
 RUN cargo build
@@ -13,7 +14,7 @@ RUN cargo build
 FROM alpine:3.14
 
 WORKDIR /usr/src/conn-tracer
-COPY --from=builder /usr/src/conn-tracer/debug/conn-tracer /usr/src/conn-tracer/debug/conn-tracer
-COPY --from=builder /usr/src/conn-tracer/bpfel-unknown-none/debug/conn-tracer /usr/src/conn-tracer/bpfel-unknown-none/debug/conn-tracer
+COPY --from=builder /usr/src/conn-tracer/target/debug/conn-tracer /usr/src/conn-tracer/target/debug/conn-tracer
+COPY --from=builder /usr/src/conn-tracer/target/bpfel-unknown-none/debug/conn-tracer /usr/src/conn-tracer/target/bpfel-unknown-none/debug/conn-tracer
 
-ENTRYPOINT ["/usr/src/conn-tracer/debug/conn-tracer"]
+ENTRYPOINT ["./target/debug/conn-tracer"]
