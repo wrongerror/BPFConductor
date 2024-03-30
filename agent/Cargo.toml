@@ -9,3 +9,16 @@ name = "agent"
 path = "src/main.rs"
 
 [dependencies]
+ahash = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bpfman-api = { workspace = true }
+bpfman-lib = { workspace = true }
+conn-tracer = { path = "../ebpf-programs/conn-tracer/conn-tracer" }
+lazy_static = { workspace = true }
+log = { workspace = true }
+prometheus-client = { workspace = true }
+tokio = { workspace = true, features = ["full", "signal"] }
+tokio-stream = { workspace = true, features = ["net"] }
+tonic = { workspace = true, features = ["transport"] }
+tower = { workspace = true }
