@@ -1,4 +1,3 @@
-use std::net::Ipv4Addr;
 use std::sync::{Arc, RwLock};
 
 use ahash::AHashMap;
@@ -26,7 +25,7 @@ pub struct Workload {
 }
 
 #[derive(Clone, Debug)]
-pub struct ClusterStore {
+pub(crate) struct CacheManager {
     pub pods: Store<Pod>,
     pub nodes: Store<Node>,
     pub services: Store<Service>,
@@ -37,17 +36,12 @@ pub struct ClusterStore {
     pub jobs: Store<Job>,
     pub cronjobs: Store<CronJob>,
     pub pod_descriptors: Cache<ObjectRef<Pod>, Workload>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Resolver {
-    store: ClusterStore,
-    ips: Cache<String, Workload>,
+    pub ip_to_workload: Cache<String, Workload>,
 }
 
 macro_rules! spawn_watcher {
-    ($resolver:expr, $resource:ty, $writer:expr, $watcher:ident) => {{
-        let r = $resolver.clone();
+    ($mgr:expr, $resource:ty, $writer:expr, $watcher:ident) => {{
+        let r = $mgr.clone();
         let writer = $writer;
         tokio::spawn(async move {
             let _ = r.$watcher(writer).await;
@@ -55,9 +49,9 @@ macro_rules! spawn_watcher {
     }};
 }
 
-impl Resolver {
-    pub async fn new() -> anyhow::Result<Resolver> {
-        info!("Initializing IPResolver");
+impl CacheManager {
+    pub(crate) async fn new() -> anyhow::Result<CacheManager> {
+        info!("Initializing cache manager");
         let (pod_reader, pod_writer) = reflector::store::<Pod>();
         let (node_reader, node_writer) = reflector::store::<Node>();
         let (svc_reader, svc_writer) = reflector::store::<Service>();
@@ -68,7 +62,7 @@ impl Resolver {
         let (jobs_reader, jobs_writer) = reflector::store::<Job>();
         let (cronjobs_reader, cronjobs_writer) = reflector::store::<CronJob>();
 
-        let cluster_store = ClusterStore {
+        let cache_mgr = Self {
             pods: pod_reader,
             nodes: node_reader,
             services: svc_reader,
@@ -79,31 +73,20 @@ impl Resolver {
             jobs: jobs_reader,
             cronjobs: cronjobs_reader,
             pod_descriptors: Arc::new(RwLock::new(AHashMap::new())),
+            ip_to_workload: Arc::new(RwLock::new(AHashMap::new())),
         };
 
-        let resolver = Resolver {
-            store: cluster_store,
-            ips: Arc::new(RwLock::new(AHashMap::new())),
-        };
+        spawn_watcher!(cache_mgr, Pod, pod_writer, watching_pods);
+        spawn_watcher!(cache_mgr, Node, node_writer, watching_nodes);
+        spawn_watcher!(cache_mgr, Service, svc_writer, watching_services);
+        spawn_watcher!(cache_mgr, ReplicaSet, rs_writer, watching_replicasets);
+        spawn_watcher!(cache_mgr, Deployment, deploy_writer, watching_deployments);
+        spawn_watcher!(cache_mgr, StatefulSet, sts_writer, watching_statefulsets);
+        spawn_watcher!(cache_mgr, DaemonSet, ds_writer, watching_daemonsets);
+        spawn_watcher!(cache_mgr, Job, jobs_writer, watching_jobs);
+        spawn_watcher!(cache_mgr, CronJob, cronjobs_writer, watching_cronjobs);
 
-        spawn_watcher!(resolver, Pod, pod_writer, watching_pods);
-        spawn_watcher!(resolver, Node, node_writer, watching_nodes);
-        spawn_watcher!(resolver, Service, svc_writer, watching_services);
-        spawn_watcher!(resolver, ReplicaSet, rs_writer, watching_replicasets);
-        spawn_watcher!(resolver, Deployment, deploy_writer, watching_deployments);
-        spawn_watcher!(resolver, StatefulSet, sts_writer, watching_statefulsets);
-        spawn_watcher!(resolver, DaemonSet, ds_writer, watching_daemonsets);
-        spawn_watcher!(resolver, Job, jobs_writer, watching_jobs);
-        spawn_watcher!(resolver, CronJob, cronjobs_writer, watching_cronjobs);
-
-        Ok(resolver)
-    }
-
-    pub fn resolve_ip(&self, ip: u32) -> Option<Arc<Workload>> {
-        let ips = self.ips.read().unwrap();
-        let ip_addr = Ipv4Addr::from(ip);
-        let ip_string = ip_addr.to_string();
-        ips.get(&ip_string).map(|w| w.clone())
+        Ok(cache_mgr)
     }
 
     async fn get_controller_of_owner(
@@ -113,7 +96,7 @@ impl Resolver {
     ) -> Option<OwnerReference> {
         match owner_ref.kind.as_str() {
             "ReplicaSet" => {
-                let reader = self.store.replicasets.clone();
+                let reader = self.replicasets.clone();
                 let obj_ref =
                     ObjectRef::<ReplicaSet>::new(owner_ref.name.as_str()).within(namespace);
                 match reader.get(&obj_ref) {
@@ -127,7 +110,7 @@ impl Resolver {
                 }
             }
             "Deployment" => {
-                let reader = self.store.deployments.clone();
+                let reader = self.deployments.clone();
                 let obj_ref =
                     ObjectRef::<Deployment>::new(owner_ref.name.as_str()).within(namespace);
                 match reader.get(&obj_ref) {
@@ -141,7 +124,7 @@ impl Resolver {
                 }
             }
             "DaemonSet" => {
-                let reader = self.store.daemonsets.clone();
+                let reader = self.daemonsets.clone();
                 let obj_ref =
                     ObjectRef::<DaemonSet>::new(owner_ref.name.as_str()).within(namespace);
                 match reader.get(&obj_ref) {
@@ -155,7 +138,7 @@ impl Resolver {
                 }
             }
             "StatefulSet" => {
-                let reader = self.store.statefulsets.clone();
+                let reader = self.statefulsets.clone();
                 let obj_ref =
                     ObjectRef::<StatefulSet>::new(owner_ref.name.as_str()).within(namespace);
                 match reader.get(&obj_ref) {
@@ -169,7 +152,7 @@ impl Resolver {
                 }
             }
             "Job" => {
-                let reader = self.store.jobs.clone();
+                let reader = self.jobs.clone();
                 let obj_ref = ObjectRef::<Job>::new(owner_ref.name.as_str()).within(namespace);
                 match reader.get(&obj_ref) {
                     None => None,
@@ -182,7 +165,7 @@ impl Resolver {
                 }
             }
             "CronJob" => {
-                let reader = self.store.cronjobs.clone();
+                let reader = self.cronjobs.clone();
                 let obj_ref = ObjectRef::<CronJob>::new(owner_ref.name.as_str()).within(namespace);
                 match reader.get(&obj_ref) {
                     None => None,
@@ -201,7 +184,7 @@ impl Resolver {
     async fn resolve_pod_descriptor(&self, pod: &Pod) -> Arc<Workload> {
         // if pod already exists in the cache, return it
         let entry = {
-            let pod_descriptors = self.store.pod_descriptors.read().unwrap();
+            let pod_descriptors = self.pod_descriptors.read().unwrap();
             if let Some(entry) = pod_descriptors.get(&ObjectRef::from_obj(pod)) {
                 Some(entry.clone())
             } else {
@@ -238,7 +221,7 @@ impl Resolver {
             namespace,
             kind,
         });
-        let mut pod_descriptors = self.store.pod_descriptors.write().unwrap();
+        let mut pod_descriptors = self.pod_descriptors.write().unwrap();
         pod_descriptors.insert(ObjectRef::from_obj(pod), entry.clone());
         entry
     }
@@ -246,7 +229,6 @@ impl Resolver {
     async fn watching_pods(&self, writer: Writer<Pod>) -> anyhow::Result<()> {
         let client = Client::try_default().await?;
         let api: Api<Pod> = Api::all(client);
-
         let stream = watcher(api, watcher::Config::default().any_semantic())
             .default_backoff()
             .modify(|pod| {
@@ -261,7 +243,7 @@ impl Resolver {
 
         while let Some(pod) = stream.try_next().await? {
             let entry = self.resolve_pod_descriptor(&pod).await;
-            let mut ips = self.ips.write().unwrap();
+            let mut ips = self.ip_to_workload.write().unwrap();
             if let Some(status) = pod.status.as_ref() {
                 if let Some(pod_ips) = status.pod_ips.as_ref() {
                     for ip in pod_ips {
@@ -291,7 +273,7 @@ impl Resolver {
         futures::pin_mut!(stream);
 
         while let Some(node) = stream.try_next().await? {
-            let mut ips = self.ips.write().unwrap();
+            let mut ips = self.ip_to_workload.write().unwrap();
             if let Some(status) = node.status.as_ref() {
                 if let Some(addresses) = status.addresses.as_ref() {
                     for addr in addresses {
@@ -327,7 +309,7 @@ impl Resolver {
         futures::pin_mut!(stream);
 
         while let Some(service) = stream.try_next().await? {
-            let mut ips = self.ips.write().unwrap();
+            let mut ips = self.ip_to_workload.write().unwrap();
             if let Some(spec) = service.spec.as_ref() {
                 if let Some(cluster_ips) = spec.cluster_ips.as_ref() {
                     for ip in cluster_ips {
@@ -470,104 +452,26 @@ impl Resolver {
     }
 
     pub async fn wait_for_cache_sync(&self) -> anyhow::Result<()> {
-        let pods = self.store.pods.clone();
+        let pods = self.pods.clone();
         pods.wait_until_ready().await?;
-        let nodes = self.store.nodes.clone();
+        let nodes = self.nodes.clone();
         nodes.wait_until_ready().await?;
-        let services = self.store.services.clone();
+        let services = self.services.clone();
         services.wait_until_ready().await?;
-        let replicasets = self.store.replicasets.clone();
+        let replicasets = self.replicasets.clone();
         replicasets.wait_until_ready().await?;
-        let deployments = self.store.deployments.clone();
+        let deployments = self.deployments.clone();
         deployments.wait_until_ready().await?;
-        let statefulsets = self.store.statefulsets.clone();
+        let statefulsets = self.statefulsets.clone();
         statefulsets.wait_until_ready().await?;
-        let daemonsets = self.store.daemonsets.clone();
+        let daemonsets = self.daemonsets.clone();
         daemonsets.wait_until_ready().await?;
-        let jobs = self.store.jobs.clone();
+        let jobs = self.jobs.clone();
         jobs.wait_until_ready().await?;
-        let cronjobs = self.store.cronjobs.clone();
+        let cronjobs = self.cronjobs.clone();
         cronjobs.wait_until_ready().await?;
 
         info!("Cache sync complete");
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::str::FromStr;
-
-    use kube::ResourceExt;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_new_resolver() {
-        let r = Resolver::new().await.unwrap();
-        r.wait_for_cache_sync().await.unwrap();
-        let pods = r
-            .store
-            .pods
-            .clone()
-            .state()
-            .iter()
-            .map(|p| p.name_any())
-            .collect::<Vec<_>>();
-        assert_ne!(pods.len(), 0);
-
-        let nodes = r
-            .store
-            .nodes
-            .clone()
-            .state()
-            .iter()
-            .map(|n| n.name_any())
-            .collect::<Vec<_>>();
-        assert_ne!(nodes.len(), 0);
-
-        let services = r
-            .store
-            .services
-            .clone()
-            .state()
-            .iter()
-            .map(|s| s.name_any())
-            .collect::<Vec<_>>();
-        assert_ne!(services.len(), 0);
-
-        let replicasets = r
-            .store
-            .replicasets
-            .clone()
-            .state()
-            .iter()
-            .map(|r| r.name_any())
-            .collect::<Vec<_>>();
-        assert_ne!(replicasets.len(), 0);
-
-        let daemonsets = r
-            .store
-            .daemonsets
-            .clone()
-            .state()
-            .iter()
-            .map(|d| d.name_any())
-            .collect::<Vec<_>>();
-        assert_ne!(daemonsets.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_resolver_ip() {
-        let r = Resolver::new().await.unwrap();
-        r.wait_for_cache_sync().await.unwrap();
-        let ip = "10.233.0.3";
-        let except = Arc::new(Workload {
-            name: "coredns".to_string(),
-            namespace: "kube-system".to_string(),
-            kind: "Service".to_string(),
-        });
-        let result = r.resolve_ip(u32::from(Ipv4Addr::from_str(ip).unwrap()));
-        assert_eq!(result, Some(except));
     }
 }

@@ -7,11 +7,17 @@ use aya_ebpf::{
     programs::{ProbeContext, TracePointContext},
 };
 use conn_tracer_common::{
-    vmlinux::{sock, sock_common, tcp_sock},
     ConnectionKey, ConnectionStats, SockInfo, AF_INET, AF_INET6, CONNECTION_ROLE_CLIENT,
     CONNECTION_ROLE_SERVER, CONNECTION_ROLE_UNKNOWN, INET_SOCK_NEWSTATE_OFFSET,
     INET_SOCK_SKADDR_OFFSET, MAX_CONNECTIONS, TCP_CLOSE, TCP_SYN_RECV, TCP_SYN_SENT,
 };
+use vmlinux::{sock, sock_common, tcp_sock};
+
+#[allow(non_upper_case_globals)]
+#[allow(non_snake_case)]
+#[allow(non_camel_case_types)]
+#[allow(dead_code)]
+pub mod vmlinux;
 
 #[map(name = "SOCKETS")]
 static mut SOCKETS: aya_ebpf::maps::LruHashMap<*const sock, SockInfo> =

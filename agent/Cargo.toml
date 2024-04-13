@@ -9,16 +9,45 @@ name = "agent"
 path = "src/main.rs"
 
 [dependencies]
+aya = { workspace = true, features = ["async_tokio"] }
+agent-api = { path = "../agent-api" }
 ahash = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 bpfman-api = { workspace = true }
 bpfman-lib = { workspace = true }
-conn-tracer = { path = "../ebpf-programs/conn-tracer/conn-tracer" }
+bytes = { workspace = true }
+clap = { workspace = true, features = [
+    "color",
+    "derive",
+    "help",
+    "std",
+    "suggestions",
+    "usage",
+] }
+conn-tracer-common = { path = "../ebpf/conn-tracer/conn-tracer-common", features = ["user"] }
+env_logger = { workspace = true }
+fnv = { workspace = true }
+futures = { workspace = true }
+http-body-util = { workspace = true }
+hyper-util = { workspace = true, features = ["full"] }
+hyper = { workspace = true, features = ["full"] }
+k8s-openapi = { workspace = true, features = ["v1_24"] }
+kube = { workspace = true, features = ["default", "derive", "runtime", "unstable-runtime"] }
 lazy_static = { workspace = true }
 log = { workspace = true }
+nix = { workspace = true, features = [
+    "fs",
+    "mount",
+    "net",
+    "resource",
+    "socket",
+    "user",
+] }
 prometheus-client = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full", "signal"] }
 tokio-stream = { workspace = true, features = ["net"] }
 tonic = { workspace = true, features = ["transport"] }
 tower = { workspace = true }
+url = { workspace = true }

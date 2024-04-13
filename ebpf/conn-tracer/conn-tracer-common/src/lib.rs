@@ -1,11 +1,3 @@
-#![no_std]
-
-#[allow(non_upper_case_globals)]
-#[allow(non_snake_case)]
-#[allow(non_camel_case_types)]
-#[allow(dead_code)]
-pub mod vmlinux;
-
 pub const AF_INET: u16 = 2;
 pub const AF_INET6: u16 = 10;
 pub const MAX_CONNECTIONS: u32 = 100000;

@@ -1,4 +1,4 @@
-// utils.rs
+use std::hash::Hasher;
 use std::result::Result;
 
 use bytes::Bytes;
@@ -6,7 +6,6 @@ use fnv::FnvHasher;
 use http_body_util::Empty;
 use hyper::{body::Incoming, Request, Response};
 use hyper_util::rt::TokioIo;
-use std::hash::Hasher;
 use tokio::net::TcpStream;
 
 pub async fn fetch_url(

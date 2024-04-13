@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "agent",
+    "agent-api",
     "xtask",
 ]
 resolver = "2"
@@ -14,6 +15,7 @@ base16ct = { version = "0.2.0", default-features = false }
 base64 = { version = "0.22.0", default-features = false }
 bpfman-lib = { git = "https://github.com/bpfman/bpfman", branch = "main", package = "bpfman" }
 bpfman-api = { git = "https://github.com/bpfman/bpfman", branch = "main", package = "bpfman-api" }
+bytes = { version = "1.6.0", default-features = false }
 caps = { version = "0.5.4", default-features = false }
 chrono = { version = "0.4.31", default-features = false }
 clap = { version = "4", default-features = false }
@@ -21,6 +23,13 @@ comfy-table = { version = "7.1.0", default-features = false }
 env_logger = { version = "0.11.3", default-features = false }
 flate2 = { version = "1.0", default-features = false }
 futures = { version = "0.3.30", default-features = false }
+fnv = { version = "1.0.7", default-features = false }
+h2 = { version = "0.4.2", default-features = false }
+http-body-util = { version = "0.1", default-features = false }
+hyper-util = { version = "0.1", default-features = false }
+hyper = { version = "1.2.0", default-features = false }
+k8s-openapi = { version = "0.21.0", default-features = false }
+kube = { version = "0.90.0", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 lazy_static = { version = "1", default-features = false }
 log = { version = "0.4", default-features = false }
@@ -29,7 +38,7 @@ nix = { version = "0.27", default-features = false }
 oci-distribution = { version = "0.10.0", default-features = false }
 prometheus-client = { version = "0.22.2", default-features = false }
 prost = { version = "0.12.3", default-features = false }
-prost-types = { version = "0.12.2", default-features = false }
+prost-types = { version = "0.12.3", default-features = false }
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1", default-features = false }
 sha2 = { version = "0.10.8", default-features = false }

@@ -22,16 +22,16 @@ fn workspace_root() -> String {
 }
 
 pub fn build(_opts: Options) -> anyhow::Result<()> {
-    build_bpflet(&_opts)?;
+    build_agent(&_opts)?;
     Ok(())
 }
 
-fn build_bpflet(_opts: &Options) -> anyhow::Result<()> {
+fn build_agent(_opts: &Options) -> anyhow::Result<()> {
     let root = PathBuf::from(WORKSPACE_ROOT.to_string());
-    let out_dir = root.join("bpflet-api/src");
+    let out_dir = root.join("agent-api/src");
     let proto_dir = root.join("proto");
 
-    let protos = &["bpflet.proto"];
+    let protos = &["agent.proto"];
     let includes = &[proto_dir.to_str().unwrap()];
     tonic_build::configure()
         .out_dir(out_dir)

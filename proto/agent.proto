@@ -1,0 +1,114 @@
+syntax = "proto3";
+package agent.v1;
+
+service agent {
+  rpc Load (LoadRequest) returns (LoadResponse);
+  rpc Unload (UnloadRequest) returns (UnloadResponse);
+  rpc List (ListRequest) returns (ListResponse);
+  rpc PullBytecode (PullBytecodeRequest) returns (PullBytecodeResponse);
+  rpc Get (GetRequest) returns (GetResponse);
+}
+
+/* BytecodeImage represents an user program that is packaged and contained within
+ * an OCI container image.
+ */
+
+message BytecodeImage {
+  string url = 1;
+  int32 image_pull_policy = 2;
+  optional string username = 3;
+  optional string password = 4;
+}
+
+/* BytecodeLocation is either:
+ * - Parameters to pull an user program stored in an OCI container image.
+ * - Local file path for an image.
+ */
+message BytecodeLocation {
+  oneof location {
+    BytecodeImage image = 1;
+    string file = 2;
+  }
+}
+
+/* ProgramInfo represents the state for a single user program that is maintained
+ * internally by agent. */
+
+message ProgramInfo {
+  string name = 1;
+  uint32 program_type = 2;
+  uint32 state = 3;
+  BytecodeLocation bytecode = 4;
+  map<string, string> metadata = 5;
+}
+
+/* LoadRequest represents a request to load a user program. */
+
+message LoadRequest {
+  BytecodeLocation bytecode = 1;
+  string name = 2;
+  uint32 program_type = 3;
+  map<string, string> ebpf_maps = 4;
+  map<string, string> metadata = 5;
+};
+
+/* LoadResponse represents a response from loading a user program.
+ * It includes all of the state kept by agent for the program.
+ */
+
+message LoadResponse {
+  ProgramInfo info = 1;
+}
+
+/* UnloadRequest represents a request to unload an user program.
+ */
+
+message UnloadRequest {
+  string name = 1;
+}
+
+message UnloadResponse {}
+
+/* ListRequest represents a request to get information regarding user programs
+ * that are loaded by agent.
+ */
+
+message ListRequest {
+  optional uint32 program_type = 1;
+  map<string, string> match_metadata = 3;
+}
+
+/* ListResponse represents a response from listing loaded user programs.
+ */
+
+message ListResponse {
+  message ListResult {
+    optional ProgramInfo info = 1;
+  }
+  repeated ListResult results = 3;
+}
+
+/* PullBytecodeRequest represents a request to pull an user program stored in an
+ * OCI container image to the local machine for use at a later date.
+ */
+
+message PullBytecodeRequest {
+  BytecodeImage image = 1;
+}
+
+message PullBytecodeResponse {}
+
+/* GetRequest represents a request to get information regarding a single
+ * user program that is loaded by agent.
+ */
+
+message GetRequest {
+  string name = 1;
+}
+
+/* GetResponse represents a response from getting an user program.
+ */
+
+message GetResponse {
+  optional ProgramInfo info = 1;
+}

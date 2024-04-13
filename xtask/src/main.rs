@@ -16,7 +16,7 @@ pub struct Options {
 enum Command {
     /// Build the gRPC protobuf files.
     BuildProto(protobuf::Options),
-    /// Run bpflet on the local host.
+    /// Run agent on the local host.
     Run(run::Options),
 }
 

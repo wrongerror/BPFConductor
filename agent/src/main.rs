@@ -1,47 +1,47 @@
-use bpfman_api::v1::bpfman_client::BpfmanClient;
-use bpfman_lib::directories::RTPATH_BPFMAN_SOCKET;
-use lazy_static::lazy_static;
-use log::warn;
-use std::sync::Arc;
-use tokio::net::UnixStream;
-use tokio::sync::Mutex;
-use tonic::transport::{Channel, Endpoint, Uri};
-use tower::service_fn;
+use std::path::PathBuf;
 
-mod cache;
+use clap::Parser;
+
+use crate::server::serve;
+use crate::utils::init_env;
+
+mod collector;
 mod common;
+mod config;
+mod errors;
 mod managers;
 mod progs;
-mod registry;
 mod server;
+mod utils;
 
-fn select_channel() -> Option<Channel> {
-    let path = RTPATH_BPFMAN_SOCKET.to_string();
-
-    let address = Endpoint::try_from(format!("unix:/{path}"));
-    if let Err(e) = address {
-        warn!("Failed to parse unix endpoint: {e:?}");
-        return None;
-    };
-    let address = address.unwrap();
-    let channel = address
-        .connect_with_connector_lazy(service_fn(move |_: Uri| UnixStream::connect(path.clone())));
-    Some(channel)
-}
-
-lazy_static! {
-    static ref BPF_CLIENT: Mutex<BpfmanClient<Channel>> = {
-        let channel = select_channel().unwrap();
-        Mutex::new(BpfmanClient::new(channel))
-    };
+#[derive(Parser, Debug)]
+#[command(
+    long_about = "An agent managing user space programs, including eBPF and non-eBPF, with a metrics server."
+)]
+#[command(name = "agent")]
+pub(crate) struct Args {
+    /// Optional: socket address to listen on for the metrics server.
+    #[clap(long, verbatim_doc_comment, default_value = "0.0.0.0:8080")]
+    pub(crate) metrics_addr: String,
+    /// Optional: Path under which to expose metrics.
+    #[clap(long, verbatim_doc_comment, default_value = "/metrics")]
+    pub(crate) metrics_path: String,
+    /// Optional: Location of the agent unix socket.
+    #[clap(long, verbatim_doc_comment, default_value = "/run/eva/agent.sock")]
+    pub(crate) agent_socket_path: PathBuf,
+    /// Optional: Location of the bpfman unix socket.
+    #[clap(
+        long,
+        verbatim_doc_comment,
+        default_value = "/run/bpfman-sock/bpfman.sock"
+    )]
+    pub(crate) bpfman_socket_path: String,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let channel = select_channel().unwrap();
-    let mut bpf_client = BPF_CLIENT.lock().await;
-    let reg = registry::Registry::new();
-    registry::register_programs(reg).await;
-    println!("Hello, world!");
+    let args = Args::parse();
+    init_env()?;
+    serve(args).await?;
     Ok(())
 }
