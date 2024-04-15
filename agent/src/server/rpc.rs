@@ -101,7 +101,7 @@ impl Agent for AgentService {
             .await
             .map_err(|e| Status::aborted(format!("Failed to get eBPF program IDs: {:?}", e)))?;
 
-        prog.set_metadata(request.metadata.clone());
+        prog.set_metadata(request.metadata);
         prog.init(self.prog_manager.cache_manager.clone(), map_to_prog_id)
             .map_err(|e| Status::aborted(format!("Failed to init program: {:?}", e)))?;
 

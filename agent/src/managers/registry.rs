@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use ahash::AHashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use parking_lot::RwLock;
 
 use crate::progs::service_map::program::ServiceMap;
 use crate::progs::types::Program;
@@ -18,33 +20,33 @@ impl BuiltinRegistry {
     }
 
     pub fn register_builtin_progs(&self) {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         inner.insert("service_map".to_string(), Arc::new(ServiceMap::new()));
     }
 
     pub fn get(&self, name: String) -> Option<Arc<dyn Program>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         inner.get(&name).cloned()
     }
 
     pub fn insert(&self, name: String, program: Arc<dyn Program>) -> Option<Arc<dyn Program>> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         inner.insert(name, program)
     }
 
     pub fn remove(&self, name: String) -> Option<Arc<dyn Program>> {
-        let mut inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write();
         inner.remove(&name)
     }
 
     pub fn list(&self) -> Vec<Arc<dyn Program>> {
-        let inner = self.inner.read().unwrap();
+        let inner = self.inner.read();
         inner.values().cloned().collect()
     }
 }
 
 #[derive(Debug, Clone)]
-struct WasmRegistry {
+pub struct WasmRegistry {
     inner: Arc<RwLock<AHashMap<String, Arc<dyn Program>>>>,
 }
 

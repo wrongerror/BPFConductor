@@ -11,7 +11,7 @@ use tokio::net::UnixStream;
 use tonic::transport::{Channel, Endpoint, Uri};
 use tower::service_fn;
 
-use crate::common::constants::directories::{RTDIR, RTDIR_MODE, RTPATH_AGENT_SOCKET};
+use crate::common::constants::directories::{RTDIR, RTDIR_MODE};
 
 pub(crate) fn select_channel(path: String) -> Option<Channel> {
     let address = Endpoint::try_from(format!("unix:/{path}"));

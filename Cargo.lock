@@ -63,6 +63,7 @@ dependencies = [
  "lazy_static",
  "log",
  "nix 0.27.1",
+ "parking_lot 0.12.1",
  "prometheus-client",
  "thiserror",
  "tokio",

@@ -44,6 +44,7 @@ nix = { workspace = true, features = [
     "socket",
     "user",
 ] }
+parking_lot = { workspace = true }
 prometheus-client = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full", "signal"] }

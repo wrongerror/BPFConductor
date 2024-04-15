@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use ahash::AHashMap;
 use futures::{StreamExt, TryStreamExt};
@@ -13,7 +13,8 @@ use kube::{
     runtime::{predicates, reflector, watcher, WatchStreamExt},
     Client, ResourceExt,
 };
-use log::info;
+use log::{debug, info};
+use parking_lot::RwLock;
 
 type Cache<K, V> = Arc<RwLock<AHashMap<K, Arc<V>>>>;
 
@@ -184,7 +185,7 @@ impl CacheManager {
     async fn resolve_pod_descriptor(&self, pod: &Pod) -> Arc<Workload> {
         // if pod already exists in the cache, return it
         let entry = {
-            let pod_descriptors = self.pod_descriptors.read().unwrap();
+            let pod_descriptors = self.pod_descriptors.read();
             if let Some(entry) = pod_descriptors.get(&ObjectRef::from_obj(pod)) {
                 Some(entry.clone())
             } else {
@@ -221,7 +222,7 @@ impl CacheManager {
             namespace,
             kind,
         });
-        let mut pod_descriptors = self.pod_descriptors.write().unwrap();
+        let mut pod_descriptors = self.pod_descriptors.write();
         pod_descriptors.insert(ObjectRef::from_obj(pod), entry.clone());
         entry
     }
@@ -243,11 +244,19 @@ impl CacheManager {
 
         while let Some(pod) = stream.try_next().await? {
             let entry = self.resolve_pod_descriptor(&pod).await;
-            let mut ips = self.ip_to_workload.write().unwrap();
+            let mut ips = self.ip_to_workload.write();
             if let Some(status) = pod.status.as_ref() {
                 if let Some(pod_ips) = status.pod_ips.as_ref() {
                     for ip in pod_ips {
-                        ips.insert(ip.ip.clone().unwrap(), entry.clone());
+                        match ip.ip.clone() {
+                            Some(ip) => {
+                                ips.insert(ip, entry.clone());
+                            }
+                            None => {
+                                debug!("IP is None, skipping");
+                                continue;
+                            }
+                        }
                     }
                 }
             }
@@ -273,7 +282,7 @@ impl CacheManager {
         futures::pin_mut!(stream);
 
         while let Some(node) = stream.try_next().await? {
-            let mut ips = self.ip_to_workload.write().unwrap();
+            let mut ips = self.ip_to_workload.write();
             if let Some(status) = node.status.as_ref() {
                 if let Some(addresses) = status.addresses.as_ref() {
                     for addr in addresses {
@@ -309,23 +318,29 @@ impl CacheManager {
         futures::pin_mut!(stream);
 
         while let Some(service) = stream.try_next().await? {
-            let mut ips = self.ip_to_workload.write().unwrap();
+            let mut ips = self.ip_to_workload.write();
             if let Some(spec) = service.spec.as_ref() {
                 if let Some(cluster_ips) = spec.cluster_ips.as_ref() {
-                    for ip in cluster_ips {
-                        let ip = ip.clone().parse().unwrap();
-                        // check if the ip is "None"
-                        if ip == "None" {
-                            continue;
+                    for ip_str in cluster_ips {
+                        match ip_str.clone().parse() {
+                            Ok(ip) => {
+                                if ip == "None" {
+                                    continue;
+                                }
+                                ips.insert(
+                                    ip,
+                                    Arc::new(Workload {
+                                        name: service.name_any(),
+                                        namespace: service.namespace().unwrap_or_default(),
+                                        kind: "Service".to_string(),
+                                    }),
+                                );
+                            }
+                            Err(e) => {
+                                debug!("Failed to parse IP: {:?}, skipping", e);
+                                continue;
+                            }
                         }
-                        ips.insert(
-                            ip,
-                            Arc::new(Workload {
-                                name: service.name_any(),
-                                namespace: service.namespace().unwrap_or_default(),
-                                kind: "Service".to_string(),
-                            }),
-                        );
                     }
                 }
             }

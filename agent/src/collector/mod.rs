@@ -2,24 +2,18 @@ use std::fmt::Debug;
 
 use prometheus_client::collector::Collector as PrometheusCollector;
 use prometheus_client::encoding::DescriptorEncoder;
-use tokio::runtime::Runtime;
 
 use crate::common::types::ProgramState;
 use crate::managers::registry::RegistryManager;
 
 #[derive(Debug)]
 pub(crate) struct Collector {
-    rt: Runtime,
     registry_manager: RegistryManager,
 }
 
 impl Collector {
     pub(crate) fn new(registry_manager: RegistryManager) -> Self {
-        let runtime = Runtime::new().unwrap();
-        Self {
-            registry_manager,
-            rt: runtime,
-        }
+        Self { registry_manager }
     }
 }
 
