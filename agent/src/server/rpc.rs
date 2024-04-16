@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 use std::fs::remove_file;
 use std::path::Path;
-use std::sync::Arc;
 
 use bpfman_api::v1::bpfman_client::BpfmanClient;
 use bpfman_lib::utils::set_file_permissions;
 use log::{debug, error, info};
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Channel, Server};
@@ -20,9 +20,9 @@ use agent_api::v1::{
 };
 
 use crate::common::constants::directories::SOCK_MODE;
-use crate::common::constants::{PROG_TYPE_BUILTIN, PROG_TYPE_WASM};
 use crate::config::Config;
 use crate::managers::prog::ProgManager;
+use crate::progs::types::ShutdownSignal;
 
 pub struct AgentService {
     pub config: Config,
@@ -78,36 +78,30 @@ impl Agent for AgentService {
     async fn load(&self, request: Request<LoadRequest>) -> Result<Response<LoadResponse>, Status> {
         let request = request.into_inner();
 
-        let prog = match request.program_type {
-            PROG_TYPE_BUILTIN => {
-                let prog = self
-                    .prog_manager
-                    .registry_manager
-                    .builtin
-                    .get(request.name.clone())
-                    .ok_or(Status::aborted("Program not found in registry"))?;
-                prog
-            }
-            PROG_TYPE_WASM => {
-                todo!("WASM programs are not supported yet")
-            }
-            _ => {
-                return Err(Status::aborted("Invalid program type"));
-            }
-        };
-
         let map_to_prog_id = self
             .get_prog_ids_for_maps(request.ebpf_maps)
             .await
             .map_err(|e| Status::aborted(format!("Failed to get eBPF program IDs: {:?}", e)))?;
 
-        prog.set_metadata(request.metadata);
-        prog.init(self.prog_manager.cache_manager.clone(), map_to_prog_id)
-            .map_err(|e| Status::aborted(format!("Failed to init program: {:?}", e)))?;
+        let program_type = request
+            .program_type
+            .try_into()
+            .map_err(|e| Status::aborted(format!("Failed to convert program type: {:?}", e)))?;
 
-        let p = Arc::clone(&prog);
+        let prog = self
+            .prog_manager
+            .pre_load(
+                request.name,
+                program_type,
+                request.metadata,
+                self.prog_manager.cache_manager.clone(),
+                map_to_prog_id,
+            )
+            .await
+            .map_err(|e| Status::aborted(format!("Failed to pre-load program: {:?}", e)))?;
+
         self.prog_manager
-            .load(p)
+            .load(prog.clone())
             .await
             .map_err(|e| Status::aborted(format!("Failed to load program: {:?}", e)))?;
 
@@ -124,7 +118,12 @@ impl Agent for AgentService {
         &self,
         request: Request<UnloadRequest>,
     ) -> Result<Response<UnloadResponse>, Status> {
-        todo!()
+        let request = request.into_inner();
+        self.prog_manager
+            .unload(request.name.clone())
+            .await
+            .map_err(|e| Status::aborted(format!("Failed to unload program: {:?}", e)))?;
+        Ok(Response::new(UnloadResponse {}))
     }
 
     async fn list(&self, request: Request<ListRequest>) -> Result<Response<ListResponse>, Status> {
@@ -146,7 +145,7 @@ impl Agent for AgentService {
 pub async fn serve(
     path: &Path,
     service: AgentServer<AgentService>,
-    mut shutdown_rx: broadcast::Receiver<()>,
+    mut shutdown_rx: broadcast::Receiver<ShutdownSignal>,
 ) -> anyhow::Result<JoinHandle<()>> {
     // Listen on Unix socket
     if path.exists() {
@@ -162,20 +161,27 @@ pub async fn serve(
     let serve = Server::builder()
         .add_service(service)
         .serve_with_incoming_shutdown(uds_stream, async move {
-            match shutdown_rx.recv().await {
-                Ok(()) => debug!("Unix Socket: Received shutdown signal"),
-                Err(e) => error!("Error receiving shutdown signal {:?}", e),
-            };
+            loop {
+                match shutdown_rx.recv().await {
+                    Ok(ShutdownSignal::All) => {
+                        debug!("Unix Socket: Received shutdown signal");
+                        break;
+                    }
+                    Err(e) => {
+                        error!("Error receiving shutdown signal {:?}", e);
+                        continue;
+                    }
+                    _ => continue,
+                }
+            }
         });
+
     let socket_path = path.to_path_buf();
     Ok(tokio::spawn(async move {
-        info!("Listening on {}", socket_path.to_path_buf().display());
+        info!("Listening on {}", socket_path.display());
         if let Err(e) = serve.await {
-            error!("Error = {e:?}");
+            error!("Server error: {e:?}");
         }
-        info!(
-            "Shutdown Unix Handler {}",
-            socket_path.to_path_buf().display()
-        );
+        info!("Shutdown Unix Handler {}", socket_path.display());
     }))
 }

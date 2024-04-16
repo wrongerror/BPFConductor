@@ -56,6 +56,26 @@ impl WasmRegistry {
             inner: Arc::new(RwLock::new(AHashMap::new())),
         }
     }
+
+    pub fn get(&self, name: String) -> Option<Arc<dyn Program>> {
+        let inner = self.inner.read();
+        inner.get(&name).cloned()
+    }
+
+    pub fn insert(&self, name: String, program: Arc<dyn Program>) -> Option<Arc<dyn Program>> {
+        let mut inner = self.inner.write();
+        inner.insert(name, program)
+    }
+
+    pub fn remove(&self, name: String) -> Option<Arc<dyn Program>> {
+        let mut inner = self.inner.write();
+        inner.remove(&name)
+    }
+
+    pub fn list(&self) -> Vec<Arc<dyn Program>> {
+        let inner = self.inner.read();
+        inner.values().cloned().collect()
+    }
 }
 
 #[derive(Debug, Clone)]

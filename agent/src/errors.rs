@@ -10,9 +10,9 @@ pub enum AgentError {
 #[derive(Error, Debug)]
 pub enum ParseError {
     #[error("{program_type} is not a valid program type")]
-    InvalidProgramType { program_type: String },
+    InvalidProgramType { program_type: u32 },
     #[error("{program_state} is not a valid program state")]
-    InvalidProgramState { program_state: String },
+    InvalidProgramState { program_state: u32 },
     #[error("Failed to Parse bytecode location: {0}")]
     BytecodeLocationParseFailure(#[source] urlParseError),
     #[error("Invalid bytecode location: {location}")]

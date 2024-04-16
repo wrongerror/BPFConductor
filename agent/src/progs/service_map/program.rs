@@ -9,10 +9,11 @@ use anyhow::Error;
 use async_trait::async_trait;
 use aya::maps::{HashMap as AyaHashMap, Map, MapData};
 use bpfman_lib::directories::RTDIR_FS_MAPS;
-use log::{debug, info};
+use log::{debug, error, info};
 use parking_lot::RwLock;
 use prometheus_client::encoding::DescriptorEncoder;
 use tokio::sync::broadcast;
+use tokio::sync::broadcast::Sender;
 use tokio::time;
 
 use agent_api::v1::{BytecodeLocation, ProgramInfo};
@@ -71,6 +72,21 @@ impl ServiceMap {
             inner: Arc::new(RwLock::new(Inner::new())),
         }
     }
+
+    async fn reset(&self) -> Result<(), Error> {
+        let mut inner = self.inner.write();
+
+        inner.current_conns_map = None;
+        inner.past_conns_map.clear();
+        inner.metadata.clear();
+
+        inner.program_state = ProgramState::Uninitialized;
+
+        info!("ServiceMap has been cleaned up and reset to uninitialized state.");
+
+        Ok(())
+    }
+
     fn poll(&self) -> Result<HashMap<Connection, u64>, Error> {
         let inner = self.inner.read();
         let mut keys_to_remove = Vec::new();
@@ -180,30 +196,34 @@ impl ServiceMap {
 
 #[async_trait]
 impl Program for ServiceMap {
-    fn init(&self, cache_manager: CacheManager, maps: HashMap<String, u32>) -> Result<(), Error> {
+    fn init(
+        &self,
+        metadata: HashMap<String, String>,
+        cache_manager: CacheManager,
+        maps: HashMap<String, u32>,
+    ) -> Result<(), Error> {
         let mut inner = self.inner.write();
-        if inner.program_state == ProgramState::Uninitialized {
-            inner.cache_mgr = Some(cache_manager);
+        inner.metadata = metadata;
+        inner.cache_mgr = Some(cache_manager);
 
-            let map_name = "CONNECTIONS";
-            let prog_id = maps.get(map_name).ok_or(anyhow::anyhow!(
-                "No map named CONNECTIONS in the provided maps"
-            ))?;
-            let bpfman_maps = Path::new(RTDIR_FS_MAPS);
-            if !bpfman_maps.exists() {
-                return Err(anyhow::anyhow!("{} does not exist", RTDIR_FS_MAPS));
-            }
-
-            let map_pin_path = bpfman_maps.join(format!("{}/{}", prog_id, map_name));
-            let map_data = MapData::from_pin(map_pin_path)
-                .map_err(|_| anyhow::anyhow!("No maps named CONNECTIONS"))?;
-            let tcp_conns_map: AyaHashMap<MapData, ConnectionKey, ConnectionStats> =
-                Map::HashMap(map_data)
-                    .try_into()
-                    .map_err(|_| anyhow::anyhow!("Failed to convert map"))?;
-            inner.current_conns_map = Some(tcp_conns_map);
-            inner.program_state = ProgramState::Initialized;
+        let map_name = "CONNECTIONS";
+        let prog_id = maps.get(map_name).ok_or(anyhow::anyhow!(
+            "No map named CONNECTIONS in the provided maps"
+        ))?;
+        let bpfman_maps = Path::new(RTDIR_FS_MAPS);
+        if !bpfman_maps.exists() {
+            return Err(anyhow::anyhow!("{} does not exist", RTDIR_FS_MAPS));
         }
+
+        let map_pin_path = bpfman_maps.join(format!("{}/{}", prog_id, map_name));
+        let map_data = MapData::from_pin(map_pin_path)
+            .map_err(|_| anyhow::anyhow!("No maps named CONNECTIONS"))?;
+        let tcp_conns_map: AyaHashMap<MapData, ConnectionKey, ConnectionStats> =
+            Map::HashMap(map_data)
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Failed to convert map"))?;
+        inner.current_conns_map = Some(tcp_conns_map);
+        inner.program_state = ProgramState::Initialized;
 
         Ok(())
     }
@@ -219,6 +239,8 @@ impl Program for ServiceMap {
                 _ = interval.tick() => {
                     if let Err(e) = self.poll() {
                         debug!("Error polling: {:?}", e);
+                        self.set_state(ProgramState::Failed);
+                        return Err(e.into());
                     }
                 }
                 Ok(signal) = shutdown_rx.recv() => {
@@ -237,11 +259,8 @@ impl Program for ServiceMap {
             }
         }
 
-        self.set_state(ProgramState::Stopped);
-        Ok(())
-    }
+        self.reset().await?;
 
-    async fn stop(&self) -> Result<(), Error> {
         Ok(())
     }
 

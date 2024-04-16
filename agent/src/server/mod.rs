@@ -7,6 +7,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::config::Config;
 use crate::managers::prog::ProgManager;
+use crate::progs::types::ShutdownSignal;
 use crate::utils::select_channel;
 use crate::Args;
 
@@ -19,7 +20,7 @@ pub(crate) async fn serve(args: Args) -> anyhow::Result<()> {
 
     let channel = select_channel(args.bpfman_socket_path).unwrap();
     let bpf_client = BpfmanClient::new(channel);
-    let prog_manager = ProgManager::new().await?;
+    let prog_manager = ProgManager::new(shutdown_tx.clone()).await?;
     let agent_service = rpc::AgentService::new(Config::default(), prog_manager.clone(), bpf_client);
     let service = AgentServer::new(agent_service);
 
@@ -46,7 +47,7 @@ async fn join_listeners(listeners: Vec<JoinHandle<()>>) {
     }
 }
 
-pub(crate) async fn shutdown_handler(shutdown_tx: broadcast::Sender<()>) {
+pub(crate) async fn shutdown_handler(shutdown_tx: broadcast::Sender<ShutdownSignal>) {
     let mut joinset = JoinSet::new();
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     joinset.spawn(async move {
@@ -61,5 +62,5 @@ pub(crate) async fn shutdown_handler(shutdown_tx: broadcast::Sender<()>) {
     });
 
     joinset.join_next().await;
-    shutdown_tx.send(()).unwrap();
+    shutdown_tx.send(ShutdownSignal::All).unwrap();
 }
