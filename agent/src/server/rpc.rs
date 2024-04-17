@@ -7,19 +7,20 @@ use bpfman_lib::utils::set_file_permissions;
 use log::{debug, error, info};
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
-use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::{Channel, Server};
 use tonic::{Request, Response, Status};
 
 use agent_api::v1::agent_server::{Agent, AgentServer};
+use agent_api::v1::list_response::ListResult;
 use agent_api::v1::{
     GetRequest, GetResponse, ListRequest, ListResponse, LoadRequest, LoadResponse,
     PullBytecodeRequest, PullBytecodeResponse, UnloadRequest, UnloadResponse,
 };
 
 use crate::common::constants::directories::SOCK_MODE;
+use crate::common::types::ListFilter;
 use crate::config::Config;
 use crate::managers::prog::ProgManager;
 use crate::progs::types::ShutdownSignal;
@@ -127,7 +128,23 @@ impl Agent for AgentService {
     }
 
     async fn list(&self, request: Request<ListRequest>) -> Result<Response<ListResponse>, Status> {
-        todo!()
+        let request = request.into_inner();
+        let list_filter = ListFilter::new(request.program_type, request.match_metadata.clone());
+
+        let mut reply = ListResponse { results: vec![] };
+
+        let progs = self.prog_manager.list(list_filter).await;
+
+        for prog in progs.iter() {
+            let reply_entry = ListResult {
+                info: Some(prog.get_program_info().map_err(|e| {
+                    Status::aborted(format!("Failed to get program info: {:?}", e))
+                })?),
+            };
+            reply.results.push(reply_entry);
+        }
+
+        Ok(Response::new(reply))
     }
 
     async fn pull_bytecode(
@@ -138,7 +155,20 @@ impl Agent for AgentService {
     }
 
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
-        todo!()
+        let request = request.into_inner();
+        let prog = self
+            .prog_manager
+            .get(request.name.clone(), None)
+            .await
+            .ok_or_else(|| Status::aborted(format!("Program {} not found", request.name)))?;
+
+        let prog_info = prog
+            .get_program_info()
+            .map_err(|e| Status::aborted(format!("Failed to get program info: {:?}", e)))?;
+
+        Ok(Response::new(GetResponse {
+            info: Some(prog_info),
+        }))
     }
 }
 

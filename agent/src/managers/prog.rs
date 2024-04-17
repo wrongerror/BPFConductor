@@ -1,13 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::TryFutureExt;
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::common::types::{ProgramState, ProgramType};
+use crate::common::types::{
+    ListFilter,
+    ProgramState::{Failed, Initialized, Running, Stopped, Uninitialized},
+    ProgramType,
+};
 use crate::managers::cache::CacheManager;
 use crate::managers::image::ImageManager;
 use crate::managers::registry::RegistryManager;
@@ -54,19 +57,14 @@ impl ProgManager {
             }
         };
         match prog.get_state() {
-            ProgramState::Uninitialized => {
-                prog.init(metadata, cache_manager, map_to_prog_id)?;
-                match prog.get_state() {
-                    ProgramState::Initialized => {
-                        info!("Program {} initialized successfully.", prog.get_name());
-                    }
-                    _ => {
-                        let err_msg = format!("Failed to initialize program {}.", prog.get_name());
-                        error!("{}", &err_msg);
-                        return Err(anyhow::Error::msg(err_msg));
-                    }
+            Uninitialized => match prog.init(metadata, cache_manager, map_to_prog_id) {
+                Ok(()) => {
+                    info!("Program {} initialized successfully.", prog.get_name());
                 }
-            }
+                Err(e) => {
+                    error!("Failed to initialize program {}: {:?}", prog.get_name(), e)
+                }
+            },
             _ => {
                 debug!("Program {} is already initialized.", prog.get_name());
             }
@@ -80,50 +78,54 @@ impl ProgManager {
         program_name: String,
         program_type: Option<ProgramType>,
     ) -> Option<Arc<dyn Program>> {
-        match program_type {
-            Some(ProgramType::Builtin) => self
-                .registry_manager
-                .builtin
-                .get(program_name)
-                .map(|p| p.clone()),
-            Some(ProgramType::Wasm) => self
-                .registry_manager
-                .wasm
-                .get(program_name)
-                .map(|p| p.clone()),
-            None => {
-                let program_from_builtin = self
-                    .registry_manager
-                    .builtin
-                    .get(program_name.clone())
-                    .map(|p| p.clone());
-                program_from_builtin.or_else(|| {
-                    self.registry_manager
-                        .wasm
-                        .get(program_name.clone())
-                        .map(|p| p.clone())
-                })
-            }
-        }
+        self.registry_manager
+            .get_program(program_name.as_str(), program_type)
+    }
+
+    pub(crate) async fn list(&self, list_filter: ListFilter) -> Vec<Arc<dyn Program>> {
+        self.registry_manager.list_programs(list_filter)
     }
 
     pub(crate) async fn load(&self, prog: Arc<dyn Program>) -> Result<(), anyhow::Error> {
-        let shutdown_rx = self.shutdown_tx.subscribe();
-        let p = prog.clone();
-        let handle = tokio::spawn(async move {
-            match p.start(shutdown_rx).await {
-                Ok(_) => info!("Program {} started successfully.", p.get_name()),
-                Err(e) => error!("Failed to start program {}: {:?}", p.get_name(), e),
-            }
-        });
+        match prog.get_state() {
+            Initialized | Stopped => {
+                let shutdown_rx = self.shutdown_tx.subscribe();
+                let p = prog.clone();
+                let handle = tokio::spawn(async move {
+                    match p.start(shutdown_rx).await {
+                        Ok(_) => info!("Program {} started successfully.", p.get_name()),
+                        Err(e) => error!("Failed to start program {}: {:?}", p.get_name(), e),
+                    }
+                });
 
-        let mut handlers = self.program_handles.lock();
-        handlers.insert(prog.get_name(), handle);
+                let mut handlers = self.program_handles.lock();
+                handlers.insert(prog.get_name(), handle);
+            }
+            Uninitialized | Running | Failed => {
+                let err_msg = format!(
+                    "Program {} is in an invalid state to be loaded: {:?}",
+                    prog.get_name(),
+                    prog.get_state()
+                );
+                debug!("{}", &err_msg);
+                return Err(anyhow::Error::msg(err_msg));
+            }
+        }
 
         Ok(())
     }
 
     pub(crate) async fn unload(&self, program_name: String) -> Result<(), anyhow::Error> {
+        let program = self
+            .registry_manager
+            .get_program(program_name.as_str(), None)
+            .ok_or(anyhow::Error::msg(format!(
+                "Failed to get program {} for unloading.",
+                program_name
+            )))?;
+
+        program.stop().await?;
+
         self.shutdown_tx
             .send(ShutdownSignal::ProgramName(program_name.clone()))
             .map_err(|e| {
@@ -133,6 +135,7 @@ impl ProgManager {
                 );
                 anyhow::Error::new(e)
             })?;
+
         let handle = {
             let mut handles = self.program_handles.lock();
             handles

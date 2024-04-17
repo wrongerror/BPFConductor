@@ -5,4 +5,4 @@ pub mod directories {
     pub const RTPATH_AGENT_SOCKET: &str = "/run/eva/agent.sock";
 }
 
-pub const METRICS_INTERVAL: u64 = 15;
+pub const DEFAULT_INTERVAL: u64 = 15;

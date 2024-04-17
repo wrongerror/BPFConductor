@@ -9,11 +9,10 @@ use anyhow::Error;
 use async_trait::async_trait;
 use aya::maps::{HashMap as AyaHashMap, Map, MapData};
 use bpfman_lib::directories::RTDIR_FS_MAPS;
-use log::{debug, error, info};
+use log::debug;
 use parking_lot::RwLock;
 use prometheus_client::encoding::DescriptorEncoder;
 use tokio::sync::broadcast;
-use tokio::sync::broadcast::Sender;
 use tokio::time;
 
 use agent_api::v1::{BytecodeLocation, ProgramInfo};
@@ -22,7 +21,7 @@ use conn_tracer_common::{
     CONNECTION_ROLE_UNKNOWN,
 };
 
-use crate::common::constants::METRICS_INTERVAL;
+use crate::common::constants::DEFAULT_INTERVAL;
 use crate::common::types::{ProgramState, ProgramType};
 use crate::errors::ParseError;
 use crate::managers::cache::{CacheManager, Workload};
@@ -73,18 +72,12 @@ impl ServiceMap {
         }
     }
 
-    async fn reset(&self) -> Result<(), Error> {
+    async fn reset(&self) {
         let mut inner = self.inner.write();
-
+        inner.program_state = ProgramState::Uninitialized;
         inner.current_conns_map = None;
         inner.past_conns_map.clear();
         inner.metadata.clear();
-
-        inner.program_state = ProgramState::Uninitialized;
-
-        info!("ServiceMap has been cleaned up and reset to uninitialized state.");
-
-        Ok(())
     }
 
     fn poll(&self) -> Result<HashMap<Connection, u64>, Error> {
@@ -232,7 +225,12 @@ impl Program for ServiceMap {
         mut shutdown_rx: broadcast::Receiver<ShutdownSignal>,
     ) -> Result<(), Error> {
         self.set_state(ProgramState::Running);
-        let mut interval = time::interval(Duration::from_secs(METRICS_INTERVAL));
+        let metadata = self.get_metadata();
+        let interval = metadata
+            .get("interval")
+            .and_then(|i| i.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_INTERVAL);
+        let mut interval = time::interval(Duration::from_secs(interval));
 
         loop {
             tokio::select! {
@@ -246,11 +244,9 @@ impl Program for ServiceMap {
                 Ok(signal) = shutdown_rx.recv() => {
                     match signal {
                         ShutdownSignal::All => {
-                            info!("Shutting down all programs");
                             break;
                         },
                         ShutdownSignal::ProgramName(name) if name == self.get_name() => {
-                            info!("Stopping program {}", self.get_name());
                             break;
                         },
                         _ => {}
@@ -259,8 +255,11 @@ impl Program for ServiceMap {
             }
         }
 
-        self.reset().await?;
+        Ok(())
+    }
 
+    async fn stop(&self) -> Result<(), Error> {
+        self.reset().await;
         Ok(())
     }
 
