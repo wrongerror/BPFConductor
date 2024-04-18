@@ -2,6 +2,7 @@
 members = [
     "agent",
     "agent-api",
+    "agent-cli",
     "xtask",
 ]
 resolver = "2"

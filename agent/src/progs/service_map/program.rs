@@ -22,10 +22,9 @@ use conn_tracer_common::{
 };
 
 use crate::common::constants::DEFAULT_INTERVAL;
-use crate::common::types::{ProgramState, ProgramType};
-use crate::errors::ParseError;
 use crate::managers::cache::{CacheManager, Workload};
 use crate::progs::types::{Program, ShutdownSignal};
+use agent_api::{ParseError, ProgramState, ProgramType};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Connection {
@@ -40,6 +39,7 @@ struct Inner {
     name: String,
     program_type: ProgramType,
     program_state: ProgramState,
+    ebpf_maps: HashMap<String, u32>,
     metadata: HashMap<String, String>,
     current_conns_map: Option<AyaHashMap<MapData, ConnectionKey, ConnectionStats>>,
     past_conns_map: HashMap<Connection, u64>,
@@ -52,6 +52,7 @@ impl Inner {
             name: "service_map".to_string(),
             program_type: ProgramType::Builtin,
             program_state: ProgramState::Uninitialized,
+            ebpf_maps: HashMap::new(),
             metadata: HashMap::new(),
             current_conns_map: None,
             past_conns_map: HashMap::new(),
@@ -78,6 +79,7 @@ impl ServiceMap {
         inner.current_conns_map = None;
         inner.past_conns_map.clear();
         inner.metadata.clear();
+        inner.ebpf_maps.clear();
     }
 
     fn poll(&self) -> Result<HashMap<Connection, u64>, Error> {
@@ -196,6 +198,7 @@ impl Program for ServiceMap {
         maps: HashMap<String, u32>,
     ) -> Result<(), Error> {
         let mut inner = self.inner.write();
+        inner.ebpf_maps = maps.clone();
         inner.metadata = metadata;
         inner.cache_mgr = Some(cache_manager);
 
@@ -303,6 +306,7 @@ impl Program for ServiceMap {
             program_type: self.get_type().try_into()?,
             state: self.get_state().clone().try_into()?,
             bytecode: None,
+            ebpf_maps: self.inner.read().ebpf_maps.clone(),
             metadata: self.get_metadata(),
         })
     }

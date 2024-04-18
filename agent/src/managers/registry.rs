@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use crate::common::types::{ListFilter, ProgramType};
+use crate::common::types::ListFilter;
+use agent_api::ProgramType;
 use ahash::AHashMap;
 use parking_lot::RwLock;
 

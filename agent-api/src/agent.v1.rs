@@ -41,9 +41,13 @@ pub struct ProgramInfo {
     pub state: u32,
     #[prost(message, optional, tag = "4")]
     pub bytecode: ::core::option::Option<BytecodeLocation>,
-    #[prost(map = "string, string", tag = "5")]
-    pub metadata:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(map = "string, uint32", tag = "5")]
+    pub ebpf_maps: ::std::collections::HashMap<::prost::alloc::string::String, u32>,
+    #[prost(map = "string, string", tag = "6")]
+    pub metadata: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -55,11 +59,15 @@ pub struct LoadRequest {
     #[prost(uint32, tag = "3")]
     pub program_type: u32,
     #[prost(map = "string, string", tag = "4")]
-    pub ebpf_maps:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub ebpf_maps: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(map = "string, string", tag = "5")]
-    pub metadata:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub metadata: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -82,8 +90,10 @@ pub struct ListRequest {
     #[prost(uint32, optional, tag = "1")]
     pub program_type: ::core::option::Option<u32>,
     #[prost(map = "string, string", tag = "3")]
-    pub match_metadata:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub match_metadata: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -124,8 +134,8 @@ pub struct GetResponse {
 /// Generated client implementations.
 pub mod agent_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct AgentClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -158,8 +168,9 @@ pub mod agent_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             AgentClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -198,66 +209,79 @@ pub mod agent_client {
             &mut self,
             request: impl tonic::IntoRequest<super::LoadRequest>,
         ) -> std::result::Result<tonic::Response<super::LoadResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/agent.v1.agent/Load");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("agent.v1.agent", "Load"));
+            req.extensions_mut().insert(GrpcMethod::new("agent.v1.agent", "Load"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn unload(
             &mut self,
             request: impl tonic::IntoRequest<super::UnloadRequest>,
         ) -> std::result::Result<tonic::Response<super::UnloadResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/agent.v1.agent/Unload");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("agent.v1.agent", "Unload"));
+            req.extensions_mut().insert(GrpcMethod::new("agent.v1.agent", "Unload"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn list(
             &mut self,
             request: impl tonic::IntoRequest<super::ListRequest>,
         ) -> std::result::Result<tonic::Response<super::ListResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/agent.v1.agent/List");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("agent.v1.agent", "List"));
+            req.extensions_mut().insert(GrpcMethod::new("agent.v1.agent", "List"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn pull_bytecode(
             &mut self,
             request: impl tonic::IntoRequest<super::PullBytecodeRequest>,
-        ) -> std::result::Result<tonic::Response<super::PullBytecodeResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::PullBytecodeResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/agent.v1.agent/PullBytecode");
+            let path = http::uri::PathAndQuery::from_static(
+                "/agent.v1.agent/PullBytecode",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("agent.v1.agent", "PullBytecode"));
@@ -267,17 +291,19 @@ pub mod agent_client {
             &mut self,
             request: impl tonic::IntoRequest<super::GetRequest>,
         ) -> std::result::Result<tonic::Response<super::GetResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/agent.v1.agent/Get");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("agent.v1.agent", "Get"));
+            req.extensions_mut().insert(GrpcMethod::new("agent.v1.agent", "Get"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -304,7 +330,10 @@ pub mod agent_server {
         async fn pull_bytecode(
             &self,
             request: tonic::Request<super::PullBytecodeRequest>,
-        ) -> std::result::Result<tonic::Response<super::PullBytecodeResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::PullBytecodeResponse>,
+            tonic::Status,
+        >;
         async fn get(
             &self,
             request: tonic::Request<super::GetRequest>,
@@ -333,7 +362,10 @@ pub mod agent_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -389,15 +421,21 @@ pub mod agent_server {
                 "/agent.v1.agent/Load" => {
                     #[allow(non_camel_case_types)]
                     struct LoadSvc<T: Agent>(pub Arc<T>);
-                    impl<T: Agent> tonic::server::UnaryService<super::LoadRequest> for LoadSvc<T> {
+                    impl<T: Agent> tonic::server::UnaryService<super::LoadRequest>
+                    for LoadSvc<T> {
                         type Response = super::LoadResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::LoadRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Agent>::load(&inner, request).await };
+                            let fut = async move {
+                                <T as Agent>::load(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -427,15 +465,21 @@ pub mod agent_server {
                 "/agent.v1.agent/Unload" => {
                     #[allow(non_camel_case_types)]
                     struct UnloadSvc<T: Agent>(pub Arc<T>);
-                    impl<T: Agent> tonic::server::UnaryService<super::UnloadRequest> for UnloadSvc<T> {
+                    impl<T: Agent> tonic::server::UnaryService<super::UnloadRequest>
+                    for UnloadSvc<T> {
                         type Response = super::UnloadResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::UnloadRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Agent>::unload(&inner, request).await };
+                            let fut = async move {
+                                <T as Agent>::unload(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -465,15 +509,21 @@ pub mod agent_server {
                 "/agent.v1.agent/List" => {
                     #[allow(non_camel_case_types)]
                     struct ListSvc<T: Agent>(pub Arc<T>);
-                    impl<T: Agent> tonic::server::UnaryService<super::ListRequest> for ListSvc<T> {
+                    impl<T: Agent> tonic::server::UnaryService<super::ListRequest>
+                    for ListSvc<T> {
                         type Response = super::ListResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Agent>::list(&inner, request).await };
+                            let fut = async move {
+                                <T as Agent>::list(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -503,16 +553,23 @@ pub mod agent_server {
                 "/agent.v1.agent/PullBytecode" => {
                     #[allow(non_camel_case_types)]
                     struct PullBytecodeSvc<T: Agent>(pub Arc<T>);
-                    impl<T: Agent> tonic::server::UnaryService<super::PullBytecodeRequest> for PullBytecodeSvc<T> {
+                    impl<
+                        T: Agent,
+                    > tonic::server::UnaryService<super::PullBytecodeRequest>
+                    for PullBytecodeSvc<T> {
                         type Response = super::PullBytecodeResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::PullBytecodeRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Agent>::pull_bytecode(&inner, request).await };
+                            let fut = async move {
+                                <T as Agent>::pull_bytecode(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -542,15 +599,21 @@ pub mod agent_server {
                 "/agent.v1.agent/Get" => {
                     #[allow(non_camel_case_types)]
                     struct GetSvc<T: Agent>(pub Arc<T>);
-                    impl<T: Agent> tonic::server::UnaryService<super::GetRequest> for GetSvc<T> {
+                    impl<T: Agent> tonic::server::UnaryService<super::GetRequest>
+                    for GetSvc<T> {
                         type Response = super::GetResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Agent>::get(&inner, request).await };
+                            let fut = async move {
+                                <T as Agent>::get(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -577,14 +640,18 @@ pub mod agent_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }

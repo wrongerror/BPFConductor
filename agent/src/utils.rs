@@ -13,18 +13,6 @@ use tower::service_fn;
 
 use crate::common::constants::directories::{RTDIR, RTDIR_MODE};
 
-pub(crate) fn select_channel(path: String) -> Option<Channel> {
-    let address = Endpoint::try_from(format!("unix:/{path}"));
-    if let Err(e) = address {
-        warn!("Failed to parse unix endpoint: {e:?}");
-        return None;
-    };
-    let address = address.unwrap();
-    let channel = address
-        .connect_with_connector_lazy(service_fn(move |_: Uri| UnixStream::connect(path.clone())));
-    Some(channel)
-}
-
 pub fn init_env() -> anyhow::Result<()> {
     env_logger::init();
     log::info!("Logger initialized with env_logger");

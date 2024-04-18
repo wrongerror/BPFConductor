@@ -1,14 +1,15 @@
-use agent_api::v1::agent_server::AgentServer;
 use bpfman_api::v1::bpfman_client::BpfmanClient;
 use log::debug;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::broadcast;
 use tokio::task::{JoinHandle, JoinSet};
 
+use agent_api::select_channel;
+use agent_api::v1::agent_server::AgentServer;
+
 use crate::config::Config;
 use crate::managers::prog::ProgManager;
 use crate::progs::types::ShutdownSignal;
-use crate::utils::select_channel;
 use crate::Args;
 
 pub(crate) mod http;

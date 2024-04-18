@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use prometheus_client::collector::Collector as PrometheusCollector;
 use prometheus_client::encoding::DescriptorEncoder;
 
-use crate::common::types::ProgramState;
 use crate::managers::registry::RegistryManager;
+use agent_api::ProgramState;
 
 #[derive(Debug)]
 pub(crate) struct Collector {

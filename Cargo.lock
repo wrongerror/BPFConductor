@@ -77,7 +77,30 @@ dependencies = [
 name = "agent-api"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "log",
  "prost",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tower",
+ "url",
+]
+
+[[package]]
+name = "agent-cli"
+version = "0.1.0"
+dependencies = [
+ "agent-api",
+ "anyhow",
+ "clap",
+ "comfy-table",
+ "env_logger",
+ "hex",
+ "tokio",
+ "tokio-stream",
  "tonic",
 ]
 

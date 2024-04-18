@@ -39,7 +39,8 @@ message ProgramInfo {
   uint32 program_type = 2;
   uint32 state = 3;
   BytecodeLocation bytecode = 4;
-  map<string, string> metadata = 5;
+  map<string, uint32> ebpf_maps = 5;
+  map<string, string> metadata = 6;
 }
 
 /* LoadRequest represents a request to load a user program. */

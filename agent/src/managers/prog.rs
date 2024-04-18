@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use agent_api::ProgramState::{Failed, Initialized, Running, Stopped, Uninitialized};
+use agent_api::ProgramType;
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::common::types::{
-    ListFilter,
-    ProgramState::{Failed, Initialized, Running, Stopped, Uninitialized},
-    ProgramType,
-};
+use crate::common::types::ListFilter;
 use crate::managers::cache::CacheManager;
 use crate::managers::image::ImageManager;
 use crate::managers::registry::RegistryManager;

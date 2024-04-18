@@ -7,9 +7,8 @@ use tokio::sync::broadcast::Receiver;
 
 use agent_api::v1::ProgramInfo;
 
-use crate::common::types::{ProgramState, ProgramType};
-use crate::errors::ParseError;
 use crate::managers::cache::CacheManager;
+use agent_api::{ParseError, ProgramState, ProgramType};
 
 #[derive(Debug, Clone)]
 pub enum ShutdownSignal {
