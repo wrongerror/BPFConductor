@@ -1,10 +1,10 @@
-use anyhow::bail;
 use comfy_table::{Cell, Color, Table};
 
-use agent_api::ProgramType::Builtin;
+use agent_api::ProgramState;
+use agent_api::ProgramType::{Builtin, Wasm};
 use agent_api::{
     v1::{bytecode_location::Location, list_response::ListResult, ProgramInfo},
-    ImagePullPolicy, ProgramType,
+    ImagePullPolicy,
 };
 
 pub(crate) struct ProgTable(Table);
@@ -35,7 +35,7 @@ impl ProgTable {
             Builtin => {
                 table.add_row(vec!["Type:", "Builtin"]);
             }
-            ProgramType::Wasm => {
+            Wasm => {
                 table.add_row(vec!["Type:", "Wasm"]);
                 if info.bytecode.is_none() {
                     table.add_row(vec!["NONE"]);
@@ -59,6 +59,24 @@ impl ProgTable {
                 }
             }
         }
+
+        match info.state.try_into()? {
+            ProgramState::Uninitialized => {
+                table.add_row(vec!["State:", "Uninitialized"]);
+            }
+            ProgramState::Initialized => {
+                table.add_row(vec!["State:", "Initialized"]);
+            }
+            ProgramState::Running => {
+                table.add_row(vec!["State:", "Running"]);
+            }
+            ProgramState::Failed => {
+                table.add_row(vec!["State:", "Failed"]);
+            }
+            ProgramState::Stopped => {
+                table.add_row(vec!["State:", "Stopped"]);
+            }
+        };
 
         if info.ebpf_maps.is_empty() {
             table.add_row(vec!["Maps:", "None"]);
@@ -113,10 +131,23 @@ impl ProgTable {
 
         let info = r.info.unwrap();
 
+        let program_type = match info.program_type.try_into()? {
+            Builtin => "Builtin",
+            Wasm => "Wasm",
+        };
+
+        let program_state = match info.state.try_into()? {
+            ProgramState::Uninitialized => "Uninitialized",
+            ProgramState::Initialized => "Initialized",
+            ProgramState::Running => "Running",
+            ProgramState::Failed => "Failed",
+            ProgramState::Stopped => "Stopped",
+        };
+
         self.add_row_list(
             info.name.clone(),
-            info.program_type.to_string(),
-            info.state.to_string(),
+            program_type.to_string(),
+            program_state.to_string(),
         );
 
         Ok(())

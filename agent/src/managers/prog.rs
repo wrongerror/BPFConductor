@@ -60,7 +60,8 @@ impl ProgManager {
                     info!("Program {} initialized successfully.", prog.get_name());
                 }
                 Err(e) => {
-                    error!("Failed to initialize program {}: {:?}", prog.get_name(), e)
+                    error!("Failed to initialize program {}: {:?}", prog.get_name(), e);
+                    return Err(e);
                 }
             },
             _ => {

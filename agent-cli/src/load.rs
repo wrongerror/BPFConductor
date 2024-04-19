@@ -1,10 +1,13 @@
-use crate::table::ProgTable;
-use agent_api::v1::agent_client::AgentClient;
-use agent_api::v1::LoadRequest;
-use clap::{Args, Parser};
+use clap::{Args, Subcommand};
 use tonic::transport::Channel;
 
-#[derive(Parser, Debug)]
+use agent_api::v1::agent_client::AgentClient;
+use agent_api::v1::LoadRequest;
+
+use crate::table::ProgTable;
+use crate::utils::parse_key_val;
+
+#[derive(Subcommand, Debug)]
 pub(crate) enum LoadCommand {
     /// Load a builtin program .
     Builtin(LoadBuiltinArgs),
@@ -127,10 +130,4 @@ async fn execute_load_wasm(
     args: &LoadWasmArgs,
 ) -> anyhow::Result<()> {
     todo!()
-}
-
-/// Parse a single key-value pair
-pub(crate) fn parse_key_val(s: &str) -> Result<(String, String), std::io::Error> {
-    let pos = s.find('=').ok_or(std::io::ErrorKind::InvalidInput)?;
-    Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
 }
