@@ -84,13 +84,21 @@ impl ServiceMap {
 
     fn poll(&self) -> Result<HashMap<Connection, u64>, Error> {
         let inner = self.inner.read();
-        let mut keys_to_remove = Vec::new();
-        let mut current_conns: HashMap<Connection, u64> = HashMap::new();
-
         let tcp_conns_map = inner
             .current_conns_map
             .as_ref()
-            .ok_or(Error::msg("No current connections map"))?;
+            .ok_or(Error::msg("No current connections map"))?
+            .clone();
+        let past_conns_map = inner.past_conns_map.clone();
+        let cache_mgr_ref = inner
+            .cache_mgr
+            .as_ref()
+            .ok_or(Error::msg("No cache manager"))?
+            .clone();
+
+        let mut keys_to_remove = Vec::new();
+        let mut current_conns: HashMap<Connection, u64> = HashMap::new();
+
         for item in tcp_conns_map.iter() {
             let (key, stats) = item?;
             if stats.is_active != 1 {
@@ -104,7 +112,7 @@ impl ServiceMap {
                 continue;
             }
 
-            if let Ok(connection) = self.build_connection(key) {
+            if let Ok(connection) = self.build_connection(key, &cache_mgr_ref) {
                 current_conns
                     .entry(connection.clone())
                     .and_modify(|e| *e += stats.bytes_sent)
@@ -112,7 +120,6 @@ impl ServiceMap {
             }
         }
 
-        let past_conns_map = inner.past_conns_map.clone();
         for (conn, bytes_sent) in past_conns_map.iter() {
             current_conns
                 .entry(conn.clone())
@@ -120,16 +127,18 @@ impl ServiceMap {
                 .or_insert(*bytes_sent);
         }
 
+        // Release the read lock before removing inactive connections
+        drop(inner);
+
+        let mut inner = self.inner.write();
         for key in keys_to_remove {
-            let _ = self.handle_inactive_connection(key);
+            let _ = self.handle_inactive_connection(key, &mut inner, &cache_mgr_ref);
         }
 
         Ok(current_conns)
     }
 
-    fn resolve_ip(&self, ip: u32) -> Option<Arc<Workload>> {
-        let inner = self.inner.read();
-        let cache_mgr_ref = inner.cache_mgr.as_ref()?;
+    fn resolve_ip(&self, ip: u32, cache_mgr_ref: &CacheManager) -> Option<Arc<Workload>> {
         let ip_to_workload_lock = cache_mgr_ref.ip_to_workload.clone();
         let ip_to_workload = ip_to_workload_lock.read();
         let ip_addr = Ipv4Addr::from(ip);
@@ -137,15 +146,23 @@ impl ServiceMap {
         ip_to_workload.get(&ip_string).cloned()
     }
 
-    fn build_connection(&self, key: ConnectionKey) -> Result<Connection, Error> {
-        let client_workload = self.resolve_ip(key.src_addr).ok_or(Error::msg(format!(
-            "Unknown IP: {}",
-            Ipv4Addr::from(key.src_addr)
-        )))?;
-        let server_workload = self.resolve_ip(key.dest_addr).ok_or(Error::msg(format!(
-            "Unknown IP: {}",
-            Ipv4Addr::from(key.dest_addr)
-        )))?;
+    fn build_connection(
+        &self,
+        key: ConnectionKey,
+        cache_mgr_ref: &CacheManager,
+    ) -> Result<Connection, Error> {
+        let client_workload = self
+            .resolve_ip(key.src_addr, cache_mgr_ref)
+            .ok_or(Error::msg(format!(
+                "Unknown IP: {}",
+                Ipv4Addr::from(key.src_addr)
+            )))?;
+        let server_workload = self
+            .resolve_ip(key.dest_addr, cache_mgr_ref)
+            .ok_or(Error::msg(format!(
+                "Unknown IP: {}",
+                Ipv4Addr::from(key.dest_addr)
+            )))?;
 
         let (client, server, port) = match key.role {
             CONNECTION_ROLE_CLIENT => (client_workload, server_workload, key.dest_port),
@@ -161,22 +178,20 @@ impl ServiceMap {
         })
     }
 
-    fn handle_inactive_connection(&self, key: ConnectionKey) -> Result<(), Error> {
-        let mut inner = self.inner.write();
-        let tcp_conns_map = inner
-            .current_conns_map
-            .as_mut()
-            .ok_or(Error::msg("No current connections map"))?;
-        let throughput = match tcp_conns_map.get(&key, 0) {
+    fn handle_inactive_connection(
+        &self,
+        key: ConnectionKey,
+        inner: &mut Inner,
+        cache_mgr_ref: &CacheManager,
+    ) -> Result<(), Error> {
+        let throughput = match inner.current_conns_map.as_mut().unwrap().get(&key, 0) {
             Ok(stats) => stats.bytes_sent,
             Err(_) => 0,
         };
-
-        tcp_conns_map.remove(&key)?;
-
-        let mut past_conns_map = inner.past_conns_map.clone();
-        let connection = self.build_connection(key)?;
-        past_conns_map
+        inner.current_conns_map.as_mut().unwrap().remove(&key)?;
+        let connection = self.build_connection(key, cache_mgr_ref)?;
+        inner
+            .past_conns_map
             .entry(connection)
             .and_modify(|e| *e += throughput)
             .or_insert(throughput);
