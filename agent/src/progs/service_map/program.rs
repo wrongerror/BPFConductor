@@ -11,7 +11,10 @@ use aya::maps::{HashMap as AyaHashMap, Map, MapData};
 use bpfman_lib::directories::RTDIR_FS_MAPS;
 use log::debug;
 use parking_lot::RwLock;
-use prometheus_client::encoding::DescriptorEncoder;
+use prometheus_client::encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric};
+use prometheus_client::metrics::family::Family;
+use prometheus_client::metrics::gauge::Gauge;
+use prometheus_client::registry::Unit;
 use tokio::sync::broadcast;
 use tokio::time;
 
@@ -22,6 +25,7 @@ use conn_tracer_common::{
 };
 
 use crate::common::constants::DEFAULT_INTERVAL;
+use crate::common::utils::fnv_hash;
 use crate::managers::cache::{CacheManager, Workload};
 use crate::progs::types::{Program, ShutdownSignal};
 use agent_api::{ParseError, ProgramState, ProgramType};
@@ -87,10 +91,9 @@ impl ServiceMap {
         let tcp_conns_map = inner
             .current_conns_map
             .as_ref()
-            .ok_or(Error::msg("No current connections map"))?
-            .clone();
+            .ok_or(Error::msg("No current connections map"))?;
         let past_conns_map = inner.past_conns_map.clone();
-        let cache_mgr_ref = inner
+        let cache_mgr = inner
             .cache_mgr
             .as_ref()
             .ok_or(Error::msg("No cache manager"))?
@@ -112,7 +115,7 @@ impl ServiceMap {
                 continue;
             }
 
-            if let Ok(connection) = self.build_connection(key, &cache_mgr_ref) {
+            if let Ok(connection) = self.build_connection(key, &cache_mgr) {
                 current_conns
                     .entry(connection.clone())
                     .and_modify(|e| *e += stats.bytes_sent)
@@ -132,7 +135,7 @@ impl ServiceMap {
 
         let mut inner = self.inner.write();
         for key in keys_to_remove {
-            let _ = self.handle_inactive_connection(key, &mut inner, &cache_mgr_ref);
+            let _ = self.handle_inactive_connection(key, &mut inner, &cache_mgr);
         }
 
         Ok(current_conns)
@@ -281,7 +284,49 @@ impl Program for ServiceMap {
         Ok(())
     }
 
-    fn collect(&self, mut encoder: &DescriptorEncoder) -> Result<(), Error> {
+    fn collect(&self, encoder: &mut DescriptorEncoder) -> Result<(), Error> {
+        let conns = self.poll()?;
+        let conn_metric = Family::<Labels, Gauge>::default();
+        for (conn, value) in conns.iter() {
+            let labels = Labels {
+                conn_id: format!(
+                    "{:x}",
+                    fnv_hash(&format!(
+                        "{}{}{}{}",
+                        conn.client.name,
+                        conn.client.namespace,
+                        conn.server.name,
+                        conn.server.namespace
+                    ))
+                ),
+                client_id: format!(
+                    "{:x}",
+                    fnv_hash(&format!("{}{}", conn.client.name, conn.client.namespace))
+                ),
+                client_name: conn.client.name.clone(),
+                client_namespace: conn.client.namespace.clone(),
+                client_kind: conn.client.kind.clone(),
+                server_id: format!(
+                    "{:x}",
+                    fnv_hash(&format!("{}{}", conn.server.name, conn.server.namespace))
+                ),
+                server_name: conn.server.name.clone(),
+                server_namespace: conn.server.namespace.clone(),
+                server_kind: conn.server.kind.clone(),
+                server_port: conn.server_port.to_string(),
+                role: conn.role.to_string(),
+            };
+            conn_metric.get_or_create(&labels).set(*value as i64);
+        }
+
+        let metric_encoder = encoder.encode_descriptor(
+            "connection_observed",
+            "total bytes_sent value of connections observed",
+            Some(&Unit::Bytes),
+            conn_metric.metric_type(),
+        )?;
+        conn_metric.encode(metric_encoder)?;
+
         Ok(())
     }
 
@@ -325,4 +370,19 @@ impl Program for ServiceMap {
             metadata: self.get_metadata(),
         })
     }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct Labels {
+    conn_id: String,
+    client_id: String,
+    client_name: String,
+    client_namespace: String,
+    client_kind: String,
+    server_id: String,
+    server_name: String,
+    server_namespace: String,
+    server_kind: String,
+    server_port: String,
+    role: String,
 }

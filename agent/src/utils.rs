@@ -2,14 +2,10 @@ use std::fs::create_dir_all;
 
 use anyhow::Context;
 use bpfman_lib::utils::set_file_permissions;
-use log::warn;
 use nix::{
     libc::RLIM_INFINITY,
     sys::resource::{setrlimit, Resource},
 };
-use tokio::net::UnixStream;
-use tonic::transport::{Channel, Endpoint, Uri};
-use tower::service_fn;
 
 use crate::common::constants::directories::{RTDIR, RTDIR_MODE};
 

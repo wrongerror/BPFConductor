@@ -27,7 +27,7 @@ pub trait Program: Debug + Send + Sync + 'static {
     async fn start(&self, shutdown_rx: Receiver<ShutdownSignal>) -> Result<(), anyhow::Error>;
 
     async fn stop(&self) -> Result<(), anyhow::Error>;
-    fn collect(&self, encoder: &DescriptorEncoder) -> Result<(), anyhow::Error>;
+    fn collect(&self, encoder: &mut DescriptorEncoder) -> Result<(), anyhow::Error>;
     fn get_name(&self) -> String;
     fn get_state(&self) -> ProgramState;
     fn set_state(&self, state: ProgramState);
