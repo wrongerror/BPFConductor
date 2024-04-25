@@ -22,7 +22,7 @@ pub(crate) struct ListCommand {
     /// Format: <KEY>=<VALUE>
     /// Example: --metadata owner=acme
     #[clap(short, long, verbatim_doc_comment, value_parser=parse_key_val, value_delimiter = ',')]
-    pub(crate) match_metadata: Option<HashMap<String, String>>,
+    pub(crate) match_metadata: Option<Vec<(String, String)>>,
 }
 
 impl ListCommand {
