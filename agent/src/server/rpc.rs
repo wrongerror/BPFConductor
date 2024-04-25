@@ -21,24 +21,17 @@ use agent_api::v1::{
 
 use crate::common::constants::directories::SOCK_MODE;
 use crate::common::types::ListFilter;
-use crate::config::Config;
 use crate::managers::prog::ProgManager;
 use crate::progs::types::ShutdownSignal;
 
 pub struct AgentService {
-    pub config: Config,
     pub prog_manager: ProgManager,
     pub bpf_client: BpfmanClient<Channel>,
 }
 
 impl AgentService {
-    pub(crate) fn new(
-        config: Config,
-        prog_manager: ProgManager,
-        bpf_client: BpfmanClient<Channel>,
-    ) -> Self {
+    pub(crate) fn new(prog_manager: ProgManager, bpf_client: BpfmanClient<Channel>) -> Self {
         Self {
-            config,
             prog_manager,
             bpf_client,
         }
@@ -82,12 +75,19 @@ impl Agent for AgentService {
         let map_to_prog_id = self
             .get_prog_ids_for_maps(request.ebpf_maps)
             .await
-            .map_err(|e| Status::aborted(format!("Failed to get eBPF program IDs: {:?}", e)))?;
+            .map_err(|e| {
+                Status::aborted(format!(
+                    "Failed to get eBPF program IDs: {:?}",
+                    e.to_string()
+                ))
+            })?;
 
-        let program_type = request
-            .program_type
-            .try_into()
-            .map_err(|e| Status::aborted(format!("Failed to convert program type: {:?}", e)))?;
+        let program_type = request.program_type.try_into().map_err(|_| {
+            Status::aborted(format!(
+                "Failed to convert program type: {:?}",
+                request.program_type
+            ))
+        })?;
 
         let prog = self
             .prog_manager
@@ -99,16 +99,18 @@ impl Agent for AgentService {
                 map_to_prog_id,
             )
             .await
-            .map_err(|e| Status::aborted(format!("Failed to pre-load program: {:?}", e)))?;
+            .map_err(|e| {
+                Status::aborted(format!("Failed to pre-load program: {:?}", e.to_string()))
+            })?;
 
         self.prog_manager
             .load(prog.clone())
             .await
-            .map_err(|e| Status::aborted(format!("Failed to load program: {:?}", e)))?;
+            .map_err(|e| Status::aborted(format!("Failed to load program: {:?}", e.to_string())))?;
 
-        let prog_info = prog
-            .get_program_info()
-            .map_err(|e| Status::aborted(format!("Failed to get program info: {:?}", e)))?;
+        let prog_info = prog.get_program_info().map_err(|e| {
+            Status::aborted(format!("Failed to get program info: {:?}", e.to_string()))
+        })?;
 
         Ok(Response::new(LoadResponse {
             info: Some(prog_info),
@@ -123,7 +125,9 @@ impl Agent for AgentService {
         self.prog_manager
             .unload(request.name.clone())
             .await
-            .map_err(|e| Status::aborted(format!("Failed to unload program: {:?}", e)))?;
+            .map_err(|e| {
+                Status::aborted(format!("Failed to unload program: {:?}", e.to_string()))
+            })?;
         Ok(Response::new(UnloadResponse {}))
     }
 
@@ -138,7 +142,7 @@ impl Agent for AgentService {
         for prog in progs.iter() {
             let reply_entry = ListResult {
                 info: Some(prog.get_program_info().map_err(|e| {
-                    Status::aborted(format!("Failed to get program info: {:?}", e))
+                    Status::aborted(format!("Failed to get program info: {:?}", e.to_string()))
                 })?),
             };
             reply.results.push(reply_entry);
@@ -162,9 +166,9 @@ impl Agent for AgentService {
             .await
             .ok_or_else(|| Status::aborted(format!("Program {} not found", request.name)))?;
 
-        let prog_info = prog
-            .get_program_info()
-            .map_err(|e| Status::aborted(format!("Failed to get program info: {:?}", e)))?;
+        let prog_info = prog.get_program_info().map_err(|e| {
+            Status::aborted(format!("Failed to get program info: {:?}", e.to_string()))
+        })?;
 
         Ok(Response::new(GetResponse {
             info: Some(prog_info),
@@ -198,7 +202,7 @@ pub async fn serve(
                         break;
                     }
                     Err(e) => {
-                        error!("Error receiving shutdown signal {:?}", e);
+                        error!("Error receiving shutdown signal {:?}", e.to_string());
                         continue;
                     }
                     _ => continue,

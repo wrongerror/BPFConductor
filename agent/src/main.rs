@@ -7,8 +7,6 @@ use crate::utils::init_env;
 
 mod collector;
 mod common;
-mod config;
-mod errors;
 mod managers;
 mod progs;
 mod server;

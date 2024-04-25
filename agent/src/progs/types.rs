@@ -8,7 +8,7 @@ use tokio::sync::broadcast::Receiver;
 use agent_api::v1::ProgramInfo;
 
 use crate::managers::cache::CacheManager;
-use agent_api::{ParseError, ProgramState, ProgramType};
+use agent_api::{ProgramState, ProgramType};
 
 #[derive(Debug, Clone)]
 pub enum ShutdownSignal {
@@ -34,5 +34,5 @@ pub trait Program: Debug + Send + Sync + 'static {
     fn get_type(&self) -> ProgramType;
     fn get_metadata(&self) -> HashMap<String, String>;
     fn set_metadata(&self, metadata: HashMap<String, String>);
-    fn get_program_info(&self) -> Result<ProgramInfo, ParseError>;
+    fn get_program_info(&self) -> Result<ProgramInfo, anyhow::Error>;
 }

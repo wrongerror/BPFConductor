@@ -7,7 +7,6 @@ use tokio::task::{JoinHandle, JoinSet};
 use agent_api::select_channel;
 use agent_api::v1::agent_server::AgentServer;
 
-use crate::config::Config;
 use crate::managers::prog::ProgManager;
 use crate::progs::types::ShutdownSignal;
 use crate::Args;
@@ -22,7 +21,7 @@ pub(crate) async fn serve(args: Args) -> anyhow::Result<()> {
     let channel = select_channel(args.bpfman_socket_path).unwrap();
     let bpf_client = BpfmanClient::new(channel);
     let prog_manager = ProgManager::new(shutdown_tx.clone()).await?;
-    let agent_service = rpc::AgentService::new(Config::default(), prog_manager.clone(), bpf_client);
+    let agent_service = rpc::AgentService::new(prog_manager.clone(), bpf_client);
     let service = AgentServer::new(agent_service);
 
     let mut listeners: Vec<_> = Vec::new();

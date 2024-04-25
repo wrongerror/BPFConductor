@@ -28,7 +28,7 @@ use crate::common::constants::DEFAULT_INTERVAL;
 use crate::common::utils::fnv_hash;
 use crate::managers::cache::{CacheManager, Workload};
 use crate::progs::types::{Program, ShutdownSignal};
-use agent_api::{ParseError, ProgramState, ProgramType};
+use agent_api::{ProgramState, ProgramType};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Connection {
@@ -360,11 +360,13 @@ impl Program for ServiceMap {
         inner.metadata = metadata;
     }
 
-    fn get_program_info(&self) -> Result<ProgramInfo, ParseError> {
+    fn get_program_info(&self) -> Result<ProgramInfo, Error> {
+        let program_type: u32 = self.get_type().try_into()?;
+        let state: u32 = self.get_state().clone().try_into()?;
         Ok(ProgramInfo {
             name: self.get_name(),
-            program_type: self.get_type().try_into()?,
-            state: self.get_state().clone().try_into()?,
+            program_type,
+            state,
             bytecode: None,
             ebpf_maps: self.inner.read().ebpf_maps.clone(),
             metadata: self.get_metadata(),
