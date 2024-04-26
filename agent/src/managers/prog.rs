@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use agent_api::ProgramState::{Failed, Initialized, Running, Stopped, Uninitialized};
-use agent_api::ProgramType;
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
+
+use agent_api::ProgramState;
+use agent_api::ProgramType;
 
 use crate::common::types::ListFilter;
 use crate::managers::cache::CacheManager;
@@ -55,8 +56,10 @@ impl ProgManager {
             }
         };
         match prog.get_state() {
-            Uninitialized => match prog.init(metadata, cache_manager, map_to_prog_id) {
+            ProgramState::Uninitialized => match prog.init(metadata, cache_manager, map_to_prog_id)
+            {
                 Ok(()) => {
+                    prog.set_state(ProgramState::Initialized);
                     info!("Program {} initialized successfully.", prog.get_name());
                 }
                 Err(e) => {
@@ -87,20 +90,31 @@ impl ProgManager {
 
     pub(crate) async fn load(&self, prog: Arc<dyn Program>) -> Result<(), anyhow::Error> {
         match prog.get_state() {
-            Initialized | Stopped => {
+            ProgramState::Initialized => {
                 let shutdown_rx = self.shutdown_tx.subscribe();
                 let p = prog.clone();
                 let handle = tokio::spawn(async move {
+                    p.set_state(ProgramState::Running);
                     match p.start(shutdown_rx).await {
-                        Ok(_) => info!("Program {} started successfully.", p.get_name()),
-                        Err(e) => error!("Failed to start program {}: {:?}", p.get_name(), e),
+                        Ok(_) => {
+                            p.set_state(ProgramState::Stopped);
+                            info!("Program {} completed.", p.get_name())
+                        }
+                        Err(e) => {
+                            p.set_state(ProgramState::Failed);
+                            error!(
+                                "Program {} encountered an error during execution: {:?}",
+                                p.get_name(),
+                                e
+                            )
+                        }
                     }
                 });
 
                 let mut handlers = self.program_handles.lock();
                 handlers.insert(prog.get_name(), handle);
             }
-            Uninitialized | Running | Failed => {
+            _ => {
                 let err_msg = format!(
                     "Program {} is in an invalid state to be loaded: {:?}",
                     prog.get_name(),
@@ -137,23 +151,21 @@ impl ProgManager {
 
         let handle = {
             let mut handles = self.program_handles.lock();
-            handles
-                .remove(&program_name)
-                .ok_or(anyhow::Error::msg(format!(
-                    "Failed to get handle for program {} for unloading.",
-                    program_name
-                )))?
+            handles.remove(&program_name)
         };
-
-        match handle.await {
-            Ok(_) => {
-                info!("Program {} stopped successfully.", program_name);
+        if let Some(handle) = handle {
+            match handle.await {
+                Ok(_) => {}
+                Err(e) => {
+                    error!(
+                        "Failed to wait for program {} to complete: {:?}",
+                        program_name, e
+                    );
+                }
             }
-            Err(e) => {
-                error!("Failed during program operation {}: {:?}", program_name, e);
-                return Err(anyhow::Error::new(e));
-            }
-        }
+        };
+        program.set_state(ProgramState::Uninitialized);
+        info!("Program {} unloaded successfully.", program_name);
 
         Ok(())
     }

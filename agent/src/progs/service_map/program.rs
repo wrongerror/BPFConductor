@@ -19,6 +19,7 @@ use tokio::sync::broadcast;
 use tokio::time;
 
 use agent_api::v1::{BytecodeLocation, ProgramInfo};
+use agent_api::{ProgramState, ProgramType};
 use conn_tracer_common::{
     ConnectionKey, ConnectionStats, CONNECTION_ROLE_CLIENT, CONNECTION_ROLE_SERVER,
     CONNECTION_ROLE_UNKNOWN,
@@ -28,7 +29,6 @@ use crate::common::constants::DEFAULT_INTERVAL;
 use crate::common::utils::fnv_hash;
 use crate::managers::cache::{CacheManager, Workload};
 use crate::progs::types::{Program, ShutdownSignal};
-use agent_api::{ProgramState, ProgramType};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Connection {
@@ -79,7 +79,6 @@ impl ServiceMap {
 
     async fn reset(&self) {
         let mut inner = self.inner.write();
-        inner.program_state = ProgramState::Uninitialized;
         inner.current_conns_map = None;
         inner.past_conns_map.clear();
         inner.metadata.clear();
@@ -237,7 +236,6 @@ impl Program for ServiceMap {
                 .try_into()
                 .map_err(|_| anyhow::anyhow!("Failed to convert map"))?;
         inner.current_conns_map = Some(tcp_conns_map);
-        inner.program_state = ProgramState::Initialized;
 
         Ok(())
     }
@@ -245,20 +243,18 @@ impl Program for ServiceMap {
         &self,
         mut shutdown_rx: broadcast::Receiver<ShutdownSignal>,
     ) -> Result<(), Error> {
-        self.set_state(ProgramState::Running);
         let metadata = self.get_metadata();
         let interval = metadata
             .get("interval")
             .and_then(|i| i.parse::<u64>().ok())
             .unwrap_or(DEFAULT_INTERVAL);
-        let mut interval = time::interval(Duration::from_secs(interval));
 
+        let mut interval = time::interval(Duration::from_secs(interval));
         loop {
             tokio::select! {
                 _ = interval.tick() => {
                     if let Err(e) = self.poll() {
                         debug!("Error polling: {:?}", e);
-                        self.set_state(ProgramState::Failed);
                         return Err(e.into());
                     }
                 }
