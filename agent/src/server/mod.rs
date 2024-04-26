@@ -15,7 +15,7 @@ pub(crate) mod http;
 pub(crate) mod rpc;
 
 pub(crate) async fn serve(args: Args) -> anyhow::Result<()> {
-    let (shutdown_tx, shutdown_rx) = broadcast::channel(32);
+    let (shutdown_tx, shutdown_rx1) = broadcast::channel(32);
     let shutdown_handle = tokio::spawn(shutdown_handler(shutdown_tx.clone()));
 
     let channel = select_channel(args.bpfman_socket_path).unwrap();
@@ -25,9 +25,15 @@ pub(crate) async fn serve(args: Args) -> anyhow::Result<()> {
     let service = AgentServer::new(agent_service);
 
     let mut listeners: Vec<_> = Vec::new();
-    let rpc_handler = rpc::serve(&args.agent_socket_path, service, shutdown_rx).await?;
+    let rpc_handler = rpc::serve(&args.agent_socket_path, service, shutdown_rx1).await?;
     listeners.push(rpc_handler);
-    let http_server = http::serve(args.metrics_addr, prog_manager.registry_manager.clone()).await?;
+    let shutdown_rx2 = shutdown_tx.subscribe();
+    let http_server = http::serve(
+        args.metrics_addr,
+        prog_manager.registry_manager.clone(),
+        shutdown_rx2,
+    )
+    .await?;
     listeners.push(http_server);
 
     let (_, res) = tokio::join!(join_listeners(listeners), shutdown_handle);

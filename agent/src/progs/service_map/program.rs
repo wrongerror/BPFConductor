@@ -268,6 +268,7 @@ impl Program for ServiceMap {
                             break;
                         },
                         ShutdownSignal::ProgramName(name) if name == self.get_name() => {
+                            debug!("Received shutdown signal, stopping program: {}", name);
                             break;
                         },
                         _ => {}

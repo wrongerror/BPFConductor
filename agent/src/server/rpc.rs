@@ -153,7 +153,7 @@ impl Agent for AgentService {
 
     async fn pull_bytecode(
         &self,
-        request: Request<PullBytecodeRequest>,
+        _request: Request<PullBytecodeRequest>,
     ) -> Result<Response<PullBytecodeResponse>, Status> {
         todo!()
     }

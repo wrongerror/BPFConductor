@@ -1,8 +1,7 @@
 use std::convert::Infallible;
-use std::future::Future;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use http_body_util::Full;
 use hyper::body::Bytes;
@@ -10,23 +9,30 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use log::{debug, info};
 use prometheus_client::{encoding::text::encode, registry::Registry};
 use tokio::net::TcpListener;
+use tokio::pin;
+use tokio::sync::broadcast::Receiver;
 use tokio::task::JoinHandle;
 
 use crate::collector::Collector;
 use crate::managers::registry::RegistryManager;
+use crate::progs::types::ShutdownSignal;
 
 pub async fn serve(
     address: String,
     registry_manager: RegistryManager,
+    shutdown_rx: Receiver<ShutdownSignal>,
 ) -> anyhow::Result<JoinHandle<()>> {
     let metrics_addr = address.parse::<SocketAddr>()?;
     let collector = Box::new(Collector::new(registry_manager));
     let mut registry = Registry::default();
     registry.register_collector(collector);
     let server_handle = tokio::spawn(async move {
-        start_metrics_server(metrics_addr, registry).await.unwrap();
+        start_metrics_server(metrics_addr, registry, shutdown_rx)
+            .await
+            .unwrap();
     });
     Ok(server_handle)
 }
@@ -35,52 +41,78 @@ pub async fn serve(
 async fn start_metrics_server(
     addr: SocketAddr,
     registry: Registry,
+    mut shutdown_rx: Receiver<ShutdownSignal>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind(&addr).await?;
     let registry = Arc::new(registry);
+    let connection_timeouts = vec![Duration::from_secs(5), Duration::from_secs(2)];
+
     loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
-        let registry = registry.clone();
-        tokio::task::spawn(async move {
-            let handler = maker_handler(registry);
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service_fn(handler))
-                .await
-            {
-                println!("Error serving connection: {:?}", err);
+        tokio::select! {
+            Ok(signal) = shutdown_rx.recv() => {
+                match signal {
+                    ShutdownSignal::All => {
+                    info!("Received shutdown signal, stopping server.");
+                        break;
+                    },
+                    _ => {}
+                }
+            },
+            accept_result = listener.accept() => {
+                let (stream, _) = accept_result?;
+                let io = TokioIo::new(stream);
+                let registry = registry.clone();
+                let connection_timeouts_clone = connection_timeouts.clone();
+
+                tokio::task::spawn(async move {
+                    let conn = http1::Builder::new().serve_connection(io, service_fn(move |req| request_handler(registry.clone(), req)));
+                    pin!(conn);
+
+                    for sleep_duration in connection_timeouts_clone {
+                        tokio::select! {
+                            res = conn.as_mut() => {
+                                match res {
+                                    Ok(()) => debug!("Connection completed without error"),
+                                    Err(e) => debug!("Error serving connection: {:?}", e),
+                                };
+                                break;
+                            }
+                            _ = tokio::time::sleep(sleep_duration) => {
+                                debug!("Timeout after {:?}, calling graceful_shutdown", sleep_duration);
+                                conn.as_mut().graceful_shutdown();
+                            }
+                        }
+                    }
+                });
             }
-        });
+        }
     }
+
+    Ok(())
 }
 
-fn maker_handler(
+async fn request_handler(
     registry: Arc<Registry>,
-) -> impl Fn(
-    Request<hyper::body::Incoming>,
-) -> Pin<Box<dyn Future<Output = Result<Response<Full<Bytes>>, Infallible>> + Send>> {
-    move |_req: Request<hyper::body::Incoming>| {
-        let reg = registry.clone();
-        Box::pin(async move {
-            let mut buf = String::new();
-            match encode(&mut buf, &reg.clone()) {
-                Ok(_) => Ok(Response::builder()
-                    .header(
-                        hyper::header::CONTENT_TYPE,
-                        "application/openmetrics-text; version=1.0.0; charset=utf-8",
-                    )
-                    .body(Full::from(buf))
-                    .unwrap()),
-                Err(_) => {
-                    // Handle or ignore the error here.
-                    // For example, you can return an empty response with a status code of 500.
-                    Ok(Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Full::from(Bytes::new()))
-                        .unwrap())
-                }
-            }
-        })
+    _request: Request<hyper::body::Incoming>,
+) -> Result<Response<Full<Bytes>>, Infallible> {
+    let reg = registry.clone();
+    let mut buf = String::new();
+    match encode(&mut buf, &reg.clone()) {
+        Ok(_) => Ok(Response::builder()
+            .header(
+                hyper::header::CONTENT_TYPE,
+                "application/openmetrics-text; version=1.0.0; charset=utf-8",
+            )
+            .body(Full::from(buf))
+            .unwrap()),
+        Err(_) => {
+            // Handle or ignore the error here.
+            // For example, you can return an empty response with a status code of 500.
+            Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Full::from(Bytes::new()))
+                .unwrap())
+        }
     }
 }
 
@@ -148,12 +180,16 @@ mod tests {
             })
             .inc();
 
+        let (_, shutdown_rx) = tokio::sync::broadcast::channel(1);
+
         let server_handle = tokio::spawn(async move {
-            start_metrics_server(metrics_addr, registry).await.unwrap();
+            start_metrics_server(metrics_addr, registry, shutdown_rx)
+                .await
+                .unwrap();
         });
 
         // Add a delay to ensure the server has time to start
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         // send a request to the server
         let url = format!("http://{}/metrics", metrics_addr);
