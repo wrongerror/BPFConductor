@@ -1,21 +1,12 @@
-# eva
+# eBPFConductor
 
 ## Introduction
 
-eBPF is a powerful technology that enables low-overhead and dynamic instrumentation of the Linux kernel and user space
-applications.
-However, deploying and managing eBPF programs in a Kubernetes cluster presents certain challenges.
-
-The bpfman project provides a good way to simplify the deployment and management of kernel space eBPF programs.
-
-However, there is a lack of management for user space eBPF programs. Each user space eBPF Program is deployed as a
-daemonset, which increases the number of pods, leading to an increase in resource overhead and management costs.
-
-The goal of the eva is to simplify the deployment and management of eBPF programs, including both kernel space
-and user space.
-For kernel space, we will integrate with bpfman for management.
-For user space, we will deploy a single daemonset in the cluster to manage all eBPF programs, and we will provide an
-extensible mechanism based on wasm for user space eBPF programs.
+eBPFConductor is a Rust-based framework designed for the efficient management of eBPF programs in Kubernetes
+environments. It integrates with bpfman to handle kernel space eBPF programs and utilizes a single daemonset for user
+space eBPF program management, reducing resource consumption. The framework supports wasm for extensibility and includes
+a Prometheus-compatible exporter for streamlined monitoring. eBPFConductor aims to enhance Kubernetes eBPF program
+management through its focus on security, resource efficiency, and language support.
 
 ## Features
 
@@ -34,7 +25,7 @@ extensible mechanism based on wasm for user space eBPF programs.
 
 [![Architecture](../img/overall-arch.png)](../img/overall-arch.png)
 
-The eva consists of the following components:
+The eBPFConductor consists of the following components:
 
 - **Operator**: The Operator is responsible for managing the lifecycle of eBPF programs, encompassing both kernel and
   user spaces. For kernel space, the Operator interacts with bpfman, while for user space, it communicates with the
@@ -49,16 +40,16 @@ The eva consists of the following components:
 
 The Agent consists of the following components:
 
-- **RPC Server**: The RPC server provides management interfaces for user programs. It listens on a Unix domain socket
+- **Agent Service**: The Agent Service provides management interfaces for user programs. It listens on a Unix domain
+  socket
   and supports the following operations:
     - Load: Load a user program.
     - Unload: Unload a user program.
     - List: List all user programs.
     - Get: Get the status of a user program.
     - Update: Update a user program.
-- **HTTP Server**: The HTTP server provides metrics for user space eBPF programs. It interacts with the Exporter to
-  obtain metrics. The Exporter calls the collector method of each user program (each user program implements the
-  Collector Trait to provide metrics), while also providing metrics of the Agent itself.
+- **Exporter**: The Exporter is responsible for exporting metrics. It interacts with the HTTP Server to provide metrics
+  for user programs. The Exporter calls the collector method of each user program to obtain metrics.
 - **Program**: The Program is a user program (it can also interact without eBPF Maps, such as only obtaining data
   through /sys or /proc). A Program can be a built-in Rust program, or a wasm program introduced through an extension
   mechanism.
@@ -73,8 +64,6 @@ The Agent consists of the following components:
       user programs. Both built-in Rust programs and wasm programs are maintained by the Registry Manager.
     - **Image Manager**: The Image Manager is in charge of managing the images of user programs. It offers interfaces
       for pulling images of user programs and provides bytecode for the Program Manager to load.
-- **Exporter**: The Exporter is responsible for exporting metrics. It interacts with the HTTP Server to provide metrics
-  for user programs. The Exporter calls the collector method of each user program to obtain metrics.
 
 ## Discussion
 
