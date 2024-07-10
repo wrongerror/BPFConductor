@@ -1,0 +1,108 @@
+[package]
+name = "socket-tracer-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aya-ebpf = "0.1.0"
+aya-log-ebpf = "0.1.0"
+socket-tracer-common = { path = "../socket-tracer-common" }
+
+[lib]
+name = "socket_tracer_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "socket-tracer-connect"
+path = "src/kprobes/connect.rs"
+
+[[bin]]
+name = "socket-tracer-accept"
+path = "src/kprobes/accept.rs"
+
+[[bin]]
+name = "socket-tracer-accept4"
+path = "src/kprobes/accept4.rs"
+
+[[bin]]
+name = "socket-tracer-write"
+path = "src/kprobes/write.rs"
+
+[[bin]]
+name = "socket-tracer-close"
+path = "src/kprobes/close.rs"
+
+[[bin]]
+name = "socket-tracer-readv"
+path = "src/kprobes/readv.rs"
+
+[[bin]]
+name = "socket-tracer-recv"
+path = "src/kprobes/recv.rs"
+
+[[bin]]
+name = "socket-tracer-recvfrom"
+path = "src/kprobes/recvfrom.rs"
+
+[[bin]]
+name = "socket-tracer-recvmmsg"
+path = "src/kprobes/recvmmsg.rs"
+
+[[bin]]
+name = "socket-tracer-recvmsg"
+path = "src/kprobes/recvmsg.rs"
+
+[[bin]]
+name = "socket-tracer-send"
+path = "src/kprobes/send.rs"
+
+[[bin]]
+name = "socket-tracer-sendfile"
+path = "src/kprobes/sendfile.rs"
+
+[[bin]]
+name = "socket-tracer-sendmmsg"
+path = "src/kprobes/sendmmsg.rs"
+
+[[bin]]
+name = "socket-tracer-sendmsg"
+path = "src/kprobes/sendmsg.rs"
+
+[[bin]]
+name = "socket-tracer-sendto"
+path = "src/kprobes/sendto.rs"
+
+[[bin]]
+name = "socket-tracer-sockalloc"
+path = "src/kprobes/sockalloc.rs"
+
+[[bin]]
+name = "socket-tracer-ssendmsg"
+path = "src/kprobes/ssendmsg.rs"
+
+[[bin]]
+name = "socket-tracer-writev"
+path = "src/kprobes/writev.rs"
+
+[[bin]]
+name = "socket-tracer-read"
+path = "src/kprobes/read.rs"
+
+[profile.dev]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = true
+panic = "abort"
+incremental = false
+codegen-units = 1
+rpath = false
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+
+[workspace]
+members = []
