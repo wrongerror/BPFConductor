@@ -56,17 +56,18 @@ impl ProgManager {
             }
         };
         match prog.get_state() {
-            ProgramState::Uninitialized => match prog.init(metadata, cache_manager, map_to_prog_id)
-            {
-                Ok(()) => {
-                    prog.set_state(ProgramState::Initialized);
-                    info!("Program {} initialized successfully.", prog.get_name());
+            ProgramState::Uninitialized => {
+                match prog.init(metadata, cache_manager, map_to_prog_id).await {
+                    Ok(()) => {
+                        prog.set_state(ProgramState::Initialized);
+                        info!("Program {} initialized successfully.", prog.get_name());
+                    }
+                    Err(e) => {
+                        error!("Failed to initialize program {}: {:?}", prog.get_name(), e);
+                        return Err(e);
+                    }
                 }
-                Err(e) => {
-                    error!("Failed to initialize program {}: {:?}", prog.get_name(), e);
-                    return Err(e);
-                }
-            },
+            }
             _ => {
                 debug!("Program {} is already initialized.", prog.get_name());
             }

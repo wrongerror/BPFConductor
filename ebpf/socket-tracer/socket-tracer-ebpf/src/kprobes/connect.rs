@@ -2,9 +2,7 @@
 #![no_main]
 
 use aya_ebpf::{
-    helpers::bpf_get_current_pid_tgid,
-    macros::{kprobe, kretprobe},
-    programs::ProbeContext,
+    helpers::bpf_get_current_pid_tgid, macros::tracepoint, programs::TracePointContext,
 };
 
 use socket_tracer_common::{EndpointRole, SourceFunction};
@@ -13,14 +11,18 @@ use socket_tracer_lib::{
     vmlinux::sockaddr,
 };
 
-#[kprobe]
-pub fn entry_connect(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn entry_connect(ctx: TracePointContext) -> u32 {
     try_entry_connect(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_entry_connect(ctx: ProbeContext) -> Result<u32, i64> {
-    let fd: i32 = ctx.arg(0).ok_or(1)?;
-    let sockaddr: *const sockaddr = ctx.arg(1).ok_or(1)?;
+pub const CONNECT_FD_OFFSET: usize = 16;
+pub const CONNECT_SOCKADDR_OFFSET: usize = 24;
+pub const CONNECT_ADDRLEN_OFFSET: usize = 32;
+
+fn try_entry_connect(ctx: TracePointContext) -> Result<u32, i64> {
+    let fd: i32 = unsafe { ctx.read_at(CONNECT_FD_OFFSET)? };
+    let sockaddr: *const sockaddr = unsafe { ctx.read_at(CONNECT_SOCKADDR_OFFSET)? };
     let pid_tgid = bpf_get_current_pid_tgid();
 
     let connect_args = types::ConnectArgs { fd, sockaddr };
@@ -31,14 +33,15 @@ fn try_entry_connect(ctx: ProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-#[kretprobe]
-pub fn ret_connect(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn ret_connect(ctx: TracePointContext) -> u32 {
     try_ret_connect(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_ret_connect(ctx: ProbeContext) -> Result<u32, i64> {
+pub const CONNECT_RET_OFFSET: usize = 16;
+fn try_ret_connect(ctx: TracePointContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
-    let connect_args = unsafe { ACTIVE_CONNECT_MAP.get(&pid_tgid).ok_or(1)? };
+    let connect_args = unsafe { ACTIVE_CONNECT_MAP.get(&pid_tgid).ok_or(1i64)? };
     let res = process_syscall_connect(&ctx, pid_tgid, connect_args);
     unsafe {
         ACTIVE_CONNECT_MAP.remove(&pid_tgid)?;
@@ -47,12 +50,12 @@ fn try_ret_connect(ctx: ProbeContext) -> Result<u32, i64> {
 }
 
 fn process_syscall_connect(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     pid_tgid: u64,
     args: &types::ConnectArgs,
 ) -> Result<u32, i64> {
     let tgid: u32 = (pid_tgid >> 32) as u32;
-    let retval: i32 = ctx.ret().ok_or(1u32)?;
+    let retval: i32 = unsafe { ctx.read_at(CONNECT_RET_OFFSET)? };
 
     if match_trace_tgid(tgid) == TargetTgidMatchResult::Unmatched {
         return Ok(0);

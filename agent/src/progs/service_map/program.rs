@@ -8,7 +8,6 @@ use std::time::Duration;
 use anyhow::Error;
 use async_trait::async_trait;
 use aya::maps::{HashMap as AyaHashMap, Map, MapData};
-use bpfman_lib::directories::RTDIR_FS_MAPS;
 use log::debug;
 use parking_lot::RwLock;
 use prometheus_client::encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric};
@@ -18,14 +17,15 @@ use prometheus_client::registry::Unit;
 use tokio::sync::broadcast;
 use tokio::time;
 
-use agent_api::v1::{BytecodeLocation, ProgramInfo};
 use agent_api::{ProgramState, ProgramType};
+use agent_api::v1::{BytecodeLocation, ProgramInfo};
 use conn_tracer_common::{
-    ConnectionKey, ConnectionStats, CONNECTION_ROLE_CLIENT, CONNECTION_ROLE_SERVER,
-    CONNECTION_ROLE_UNKNOWN,
+    CONNECTION_ROLE_CLIENT, CONNECTION_ROLE_SERVER, CONNECTION_ROLE_UNKNOWN, ConnectionKey,
+    ConnectionStats,
 };
 
 use crate::common::constants::DEFAULT_INTERVAL;
+use crate::common::constants::directories::RTDIR_FS_MAPS;
 use crate::common::utils::fnv_hash;
 use crate::managers::cache::{CacheManager, Workload};
 use crate::progs::types::{Program, ShutdownSignal};
@@ -208,7 +208,7 @@ impl ServiceMap {
 
 #[async_trait]
 impl Program for ServiceMap {
-    fn init(
+    async fn init(
         &self,
         metadata: HashMap<String, String>,
         cache_manager: CacheManager,

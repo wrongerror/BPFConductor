@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use aya::{Bpf, include_bytes_aligned};
-use aya::programs::KProbe;
+use aya::programs::TracePoint;
 use aya_log::BpfLogger;
 use log::warn;
 use tokio::sync::Notify;
@@ -20,14 +20,14 @@ pub async fn run(notify: Arc<Notify>) -> anyhow::Result<()> {
     }
 
     let programs = vec![
-        ("entry_sendto", "__x64_sys_sendto"),
-        ("ret_sendto", "__x64_sys_sendto"),
+        ("entry_sendto", "syscalls", "sys_enter_sendto"),
+        ("ret_sendto", "syscalls", "sys_exit_sendto"),
     ];
 
-    for (prog_name, func_name) in programs {
-        let program: &mut KProbe = bpf.program_mut(prog_name).unwrap().try_into()?;
+    for (prog_name, category, name) in programs {
+        let program: &mut TracePoint = bpf.program_mut(prog_name).unwrap().try_into()?;
         program.load()?;
-        program.attach(func_name, 0)?;
+        program.attach(category, name)?;
     }
 
     notify.notified().await;

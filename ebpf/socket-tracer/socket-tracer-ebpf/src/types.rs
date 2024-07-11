@@ -1,6 +1,6 @@
 use socket_tracer_common::SourceFunction;
 
-use crate::vmlinux::{iovec, sock, sockaddr};
+use crate::vmlinux::{iovec, sockaddr, socket};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u64)]
@@ -41,7 +41,7 @@ unsafe impl Sync for ConnectArgs {}
 #[repr(C)]
 pub struct AcceptArgs {
     pub sockaddr: *const sockaddr,
-    pub sock: *const sock,
+    pub sock: *const socket,
 }
 
 unsafe impl Sync for AcceptArgs {}

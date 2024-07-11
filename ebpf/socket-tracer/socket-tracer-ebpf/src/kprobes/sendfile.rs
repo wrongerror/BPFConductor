@@ -1,13 +1,11 @@
 #![no_std]
 #![no_main]
 
-use core::mem;
-
 use aya_ebpf::{
     cty::{size_t, ssize_t},
     helpers::bpf_get_current_pid_tgid,
-    macros::{kprobe, kretprobe},
-    programs::ProbeContext,
+    macros::tracepoint,
+    programs::TracePointContext,
 };
 
 use socket_tracer_common::{SocketDataEventInner, SourceFunction, TrafficDirection::Egress};
@@ -19,15 +17,20 @@ use socket_tracer_lib::{
     update_conn_stats,
 };
 
-#[kprobe]
-pub fn entry_sendfile(ctx: ProbeContext) -> u32 {
+pub const SENDFILE_OUT_FD_OFFSET: usize = 16;
+pub const SENDFILE_IN_FD_OFFSET: usize = 24;
+pub const SENDFILE_COUNT_OFFSET: usize = 40;
+pub const SENDFILE_RET_OFFSET: usize = 16;
+
+#[tracepoint]
+pub fn entry_sendfile64(ctx: TracePointContext) -> u32 {
     try_entry_sendfile(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_entry_sendfile(ctx: ProbeContext) -> Result<u32, i64> {
-    let out_fd: i32 = ctx.arg(0).ok_or(1)?;
-    let in_fd: i32 = ctx.arg(1).ok_or(1)?;
-    let count: size_t = ctx.arg(3).ok_or(1)?;
+fn try_entry_sendfile(ctx: TracePointContext) -> Result<u32, i64> {
+    let out_fd: i32 = unsafe { ctx.read_at(SENDFILE_OUT_FD_OFFSET)? };
+    let in_fd: i32 = unsafe { ctx.read_at(SENDFILE_IN_FD_OFFSET)? };
+    let count: size_t = unsafe { ctx.read_at(SENDFILE_COUNT_OFFSET)? };
 
     let pid_tgid = bpf_get_current_pid_tgid();
     let sendfile_args = types::SendfileArgs {
@@ -43,15 +46,15 @@ fn try_entry_sendfile(ctx: ProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-#[kretprobe]
-pub fn ret_sendfile(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn ret_sendfile64(ctx: TracePointContext) -> u32 {
     try_ret_sendfile(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_ret_sendfile(ctx: ProbeContext) -> Result<u32, i64> {
+fn try_ret_sendfile(ctx: TracePointContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
-    let bytes_count: ssize_t = ctx.ret().ok_or(1)?;
-    let sendfile_args = unsafe { ACTIVE_SENDFILE_MAP.get(&pid_tgid).ok_or(1)? };
+    let bytes_count: ssize_t = unsafe { ctx.read_at(SENDFILE_RET_OFFSET)? };
+    let sendfile_args = unsafe { ACTIVE_SENDFILE_MAP.get(&pid_tgid).ok_or(1i64)? };
     process_syscall_sendfile(&ctx, pid_tgid, sendfile_args, bytes_count)?;
 
     unsafe {
@@ -62,7 +65,7 @@ fn try_ret_sendfile(ctx: ProbeContext) -> Result<u32, i64> {
 }
 
 fn process_syscall_sendfile(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     id: u64,
     args: &types::SendfileArgs,
     bytes_count: ssize_t,
@@ -96,19 +99,19 @@ fn process_syscall_sendfile(
         }
     };
 
-    if should_send_data(tgid, conn_disabled_tsid, force_trace_tgid, conn_info) {
+    if should_send_data(tgid, conn_disabled_tsid, force_trace_tgid, &conn_info) {
         let event =
             populate_socket_data_event(SourceFunction::SyscallSendFile, Egress, &conn_info)?;
         event.inner.position = conn_info.write_bytes as u64;
         event.inner.msg_size = bytes_count as u32;
         event.inner.msg_buf_size = 0;
         unsafe {
-            let data_size = mem::size_of::<SocketDataEventInner>() as u64;
+            let data_size = core::mem::size_of::<SocketDataEventInner>() as u64;
             SOCKET_DATA_EVENTS.output_with_size(ctx, event, data_size, 0);
         }
     }
 
-    update_conn_stats(ctx, &mut conn_info, Egress, bytes_count)?;
+    update_conn_stats(ctx, tgid_fd, &mut conn_info, Egress, bytes_count)?;
 
     Ok(0)
 }

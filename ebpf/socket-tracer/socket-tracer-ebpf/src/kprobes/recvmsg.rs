@@ -3,32 +3,37 @@
 
 use aya_ebpf::{
     cty::ssize_t,
-    helpers::{bpf_get_current_pid_tgid, bpf_probe_read_kernel},
-    macros::{kprobe, kretprobe},
-    programs::ProbeContext,
+    helpers::{bpf_get_current_pid_tgid, bpf_probe_read_user},
+    macros::tracepoint,
+    programs::TracePointContext,
 };
 
 use socket_tracer_common::{SourceFunction, TrafficDirection::Ingress};
 use socket_tracer_lib::{
     maps::{ACTIVE_CONNECT_MAP, ACTIVE_READ_MAP},
-    process_syscall_data_vecs, types,
+    process_implicit_conn, process_syscall_data_vecs, types,
     types::AlignedBool,
     vmlinux::{iovec, sockaddr, user_msghdr},
 };
 
-#[kprobe]
-pub fn entry_recvmsg(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn entry_recvmsg(ctx: TracePointContext) -> u32 {
     try_entry_recvmsg(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_entry_recvmsg(ctx: ProbeContext) -> Result<u32, i64> {
-    let fd: i32 = ctx.arg(0).ok_or(1)?;
-    let msghdr: *const user_msghdr = ctx.arg(1).ok_or(1)?;
-    if msghdr.is_null() {
+pub const RECVMSG_FD_OFFSET: usize = 16;
+pub const RECVMSG_MSGHDR_OFFSET: usize = 24;
+
+fn try_entry_recvmsg(ctx: TracePointContext) -> Result<u32, i64> {
+    let fd: i32 = unsafe { ctx.read_at(RECVMSG_FD_OFFSET)? };
+    let msg_hdr_ptr: *const user_msghdr = unsafe { ctx.read_at(RECVMSG_MSGHDR_OFFSET)? };
+    let pid_tgid = bpf_get_current_pid_tgid();
+
+    if msg_hdr_ptr.is_null() {
         return Ok(0);
     }
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let msg_hdr = unsafe { bpf_probe_read_kernel(msghdr).map_err(|_| 1)? };
+
+    let msg_hdr = unsafe { bpf_probe_read_user(msg_hdr_ptr).map_err(|_| 1i64)? };
 
     unsafe {
         let msg_name_ptr = msg_hdr.msg_name;
@@ -59,24 +64,27 @@ fn try_entry_recvmsg(ctx: ProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-#[kretprobe]
-pub fn ret_recvmsg(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn ret_recvmsg(ctx: TracePointContext) -> u32 {
     try_ret_recvmsg(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_ret_recvmsg(ctx: ProbeContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let bytes_count: ssize_t = ctx.ret().ok_or(1)?;
+pub const RECVMSG_RET_OFFSET: usize = 16;
 
-    let connect_args = unsafe { ACTIVE_CONNECT_MAP.get(&pid_tgid) };
-    if connect_args.is_some() {
-        // TODO: handle implicit connect
+fn try_ret_recvmsg(ctx: TracePointContext) -> Result<u32, i64> {
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let bytes_count: ssize_t = unsafe { ctx.read_at(RECVMSG_RET_OFFSET)? };
+
+    if let Some(connect_args) = unsafe { ACTIVE_CONNECT_MAP.get(&pid_tgid) } {
+        if bytes_count > 0 {
+            process_implicit_conn(&ctx, pid_tgid, connect_args, SourceFunction::SyscallRecvMsg);
+        }
         unsafe {
-            _ = ACTIVE_CONNECT_MAP.remove(&pid_tgid);
+            ACTIVE_CONNECT_MAP.remove(&pid_tgid)?;
         }
     }
 
-    let data_args = unsafe { ACTIVE_READ_MAP.get(&pid_tgid).ok_or(1)? };
+    let data_args = unsafe { ACTIVE_READ_MAP.get(&pid_tgid).ok_or(1i64)? };
     let res = process_syscall_data_vecs(&ctx, pid_tgid, Ingress, data_args, bytes_count);
 
     unsafe {

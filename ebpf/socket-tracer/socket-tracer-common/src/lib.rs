@@ -9,6 +9,9 @@ pub const LOOP_LIMIT: usize = 882;
 pub const PROTOCOL_VEC_LIMIT: usize = 3;
 pub const CONN_STATS_DATA_THRESHOLD: i64 = 65536;
 
+pub const CONN_OPEN: u32 = 1 << 0;
+pub const CONN_CLOSE: u32 = 1 << 1;
+
 #[derive(Copy, Clone, Debug)]
 #[repr(u64)]
 pub enum ControlEventType {
@@ -16,9 +19,10 @@ pub enum ControlEventType {
     Close,
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 #[repr(u64)]
 pub enum MessageType {
+    #[default]
     Unknown,
     Request,
     Response,
@@ -31,7 +35,7 @@ pub enum TrafficDirection {
     Ingress,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 #[repr(u64)]
 pub enum EndpointRole {
     #[default]
@@ -40,7 +44,7 @@ pub enum EndpointRole {
     Server = 4,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 #[repr(u64)]
 pub enum TrafficProtocol {
     #[default]
@@ -94,14 +98,14 @@ pub enum SourceFunction {
     SyscallSendFile,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Uid {
     pub tgid: u64,
     pub start_time_ticks: u64,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct ConnId {
     // The unique identifier of the pid_tgid.
@@ -146,6 +150,16 @@ pub struct ConnInfo {
     pub dst_port: u32,
     // How many times traffic inference has been applied on this connection.
     pub protocol_total_count: u32,
+}
+
+pub trait SocketAddressable {
+    fn sa_family(&self) -> u32;
+    fn src_addr_in4(&self) -> u32;
+    fn src_addr_in6(&self) -> [u8; 16];
+    fn src_port(&self) -> u32;
+    fn dst_addr_in4(&self) -> u32;
+    fn dst_addr_in6(&self) -> [u8; 16];
+    fn dst_port(&self) -> u32;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -214,6 +228,30 @@ pub struct ConnStatsEvent {
     pub event_flags: u32,
 }
 
+impl SocketAddressable for &ConnStatsEvent {
+    fn sa_family(&self) -> u32 {
+        self.sa_family as u32
+    }
+    fn src_addr_in4(&self) -> u32 {
+        self.src_addr_in4
+    }
+    fn src_addr_in6(&self) -> [u8; 16] {
+        self.src_addr_in6
+    }
+    fn src_port(&self) -> u32 {
+        self.src_port
+    }
+    fn dst_addr_in4(&self) -> u32 {
+        self.dst_addr_in4
+    }
+    fn dst_addr_in6(&self) -> [u8; 16] {
+        self.dst_addr_in6
+    }
+    fn dst_port(&self) -> u32 {
+        self.dst_port
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct SocketControlEvent {
@@ -235,4 +273,28 @@ pub struct SocketControlEvent {
     // Fields for Close Event
     pub write_bytes: i64,
     pub read_bytes: i64,
+}
+
+impl SocketAddressable for &SocketControlEvent {
+    fn sa_family(&self) -> u32 {
+        self.sa_family as u32
+    }
+    fn src_addr_in4(&self) -> u32 {
+        self.src_addr_in4
+    }
+    fn src_addr_in6(&self) -> [u8; 16] {
+        self.src_addr_in6
+    }
+    fn src_port(&self) -> u32 {
+        self.src_port
+    }
+    fn dst_addr_in4(&self) -> u32 {
+        self.dst_addr_in4
+    }
+    fn dst_addr_in6(&self) -> [u8; 16] {
+        self.dst_addr_in6
+    }
+    fn dst_port(&self) -> u32 {
+        self.dst_port
+    }
 }

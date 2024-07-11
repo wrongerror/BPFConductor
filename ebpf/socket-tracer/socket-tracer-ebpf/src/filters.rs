@@ -12,10 +12,10 @@ pub fn should_trace_conn(conn_info: &ConnInfo) -> bool {
     return should_trace_sockaddr_family(conn_info.sa_family);
 }
 
-pub fn should_trace_protocol_data(conn_info: ConnInfo) -> bool {
+pub fn should_trace_protocol_data(conn_info: &ConnInfo) -> bool {
     match conn_info.protocol {
-        // TrafficProtocol::Unknown => false,
-        TrafficProtocol::Unknown => true, // for test
+        TrafficProtocol::Unknown => true, // for develop and test
+        TrafficProtocol::HTTP => true,
         _ => {
             let protocol = conn_info.protocol as u32;
             let idx: u64 = 0;

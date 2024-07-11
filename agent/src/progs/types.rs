@@ -5,10 +5,10 @@ use async_trait::async_trait;
 use prometheus_client::encoding::DescriptorEncoder;
 use tokio::sync::broadcast::Receiver;
 
+use agent_api::{ProgramState, ProgramType};
 use agent_api::v1::ProgramInfo;
 
 use crate::managers::cache::CacheManager;
-use agent_api::{ProgramState, ProgramType};
 
 #[derive(Debug, Clone)]
 pub enum ShutdownSignal {
@@ -18,7 +18,7 @@ pub enum ShutdownSignal {
 
 #[async_trait]
 pub trait Program: Debug + Send + Sync + 'static {
-    fn init(
+    async fn init(
         &self,
         metadata: HashMap<String, String>,
         cache_manager: CacheManager,
@@ -35,4 +35,25 @@ pub trait Program: Debug + Send + Sync + 'static {
     fn get_metadata(&self) -> HashMap<String, String>;
     fn set_metadata(&self, metadata: HashMap<String, String>);
     fn get_program_info(&self) -> Result<ProgramInfo, anyhow::Error>;
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ProgramData {
+    pub name: String,
+    pub program_type: ProgramType,
+    pub program_state: ProgramState,
+    pub ebpf_maps: HashMap<String, u32>,
+    pub metadata: HashMap<String, String>,
+}
+
+impl ProgramData {
+    pub(crate) fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            program_type: ProgramType::Builtin,
+            program_state: ProgramState::Uninitialized,
+            ebpf_maps: Default::default(),
+            metadata: Default::default(),
+        }
+    }
 }

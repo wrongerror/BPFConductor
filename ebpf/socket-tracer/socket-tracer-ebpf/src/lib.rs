@@ -5,10 +5,8 @@ use core::{cmp::PartialEq, fmt::Debug};
 
 use aya_ebpf::{
     cty::ssize_t,
-    helpers::{
-        bpf_ktime_get_ns, bpf_probe_read_kernel, bpf_probe_read_user, bpf_probe_read_user_buf,
-    },
-    programs::ProbeContext,
+    helpers::{bpf_ktime_get_ns, bpf_probe_read_kernel, bpf_probe_read_user},
+    programs::TracePointContext,
 };
 use aya_log_ebpf::debug;
 
@@ -26,11 +24,13 @@ use crate::{
     filters::{
         is_self_tgid, should_trace_conn, should_trace_protocol_data, should_trace_sockaddr_family,
     },
+    helpers::bpf_probe_read_buf_with_size,
     maps::{
         CONN_DISABLED_MAP, CONN_INFO_MAP, CONN_STATS_EVENT_BUFFER, CONN_STATS_EVENTS,
         CONTROL_VALUES, SOCKET_CONTROL_EVENTS, SOCKET_DATA_EVENT_BUFFER, SOCKET_DATA_EVENTS,
     },
-    vmlinux::{iovec, sock, sock_common, sockaddr, sockaddr_in, sockaddr_in6},
+    types::ConnectArgs,
+    vmlinux::{iovec, sock, sock_common, sockaddr, sockaddr_in, sockaddr_in6, socket},
 };
 
 pub mod filters;
@@ -71,7 +71,8 @@ pub fn match_trace_tgid(tgid: u32) -> TargetTgidMatchResult {
 }
 
 pub fn update_traffic_class(
-    _ctx: &ProbeContext,
+    ctx: &TracePointContext,
+    tgid_fd: u64,
     conn_info: &mut ConnInfo,
     direction: TrafficDirection,
     buf_ptr: *const u8,
@@ -79,7 +80,7 @@ pub fn update_traffic_class(
 ) -> Result<u32, i64> {
     conn_info.protocol_total_count += 1;
 
-    let inferred_protocol = protocols::infer_protocol(buf_ptr, count);
+    let inferred_protocol = protocols::infer_protocol(ctx, buf_ptr, count);
     match inferred_protocol.protocol {
         TrafficProtocol::Unknown => {
             return Ok(0);
@@ -106,17 +107,20 @@ pub fn update_traffic_class(
         }
     }
 
+    unsafe { CONN_INFO_MAP.insert(&tgid_fd, conn_info, 0)? }
+
     Ok(0)
 }
 
 pub fn parse_sock_data(
-    ctx: &ProbeContext,
-    sk: *const sock,
+    ctx: &TracePointContext,
+    sock: *const socket,
     conn_info: &mut ConnInfo,
 ) -> Result<u32, i64> {
+    let sk_ptr = unsafe { &(*sock).sk as *const *mut sock };
+    let sk = unsafe { bpf_probe_read_kernel(sk_ptr)? };
     let sk_common =
         unsafe { bpf_probe_read_kernel(&(*sk).__sk_common as *const sock_common).map_err(|e| e)? };
-
     // read connection data
     match sk_common.skc_family as u32 {
         AF_INET => {
@@ -124,8 +128,7 @@ pub fn parse_sock_data(
                 u32::from_be(unsafe { sk_common.__bindgen_anon_1.__bindgen_anon_1.skc_rcv_saddr });
             let dst_addr: u32 =
                 u32::from_be(unsafe { sk_common.__bindgen_anon_1.__bindgen_anon_1.skc_daddr });
-            let src_port =
-                u16::from_be(unsafe { sk_common.__bindgen_anon_3.__bindgen_anon_1.skc_num });
+            let src_port = unsafe { sk_common.__bindgen_anon_3.__bindgen_anon_1.skc_num };
             let dst_port =
                 u16::from_be(unsafe { sk_common.__bindgen_anon_3.__bindgen_anon_1.skc_dport });
             conn_info.sa_family = AF_INET;
@@ -135,16 +138,18 @@ pub fn parse_sock_data(
             conn_info.dst_port = dst_port as u32;
             debug!(
                 ctx,
-                "AF_INET src address: {:i}, dest address: {:i}",
-                conn_info.src_addr_in4,
-                conn_info.dst_addr_in4,
+                "AF_INET: tgid={}, src_addr={:i}, dst_addr={:i}, src_port={}, dst_port={}",
+                conn_info.id.uid.tgid,
+                src_addr,
+                dst_addr,
+                src_port,
+                dst_port
             );
         }
         AF_INET6 => {
             let src_addr = unsafe { sk_common.skc_v6_rcv_saddr.in6_u.u6_addr8 };
             let dst_addr = unsafe { sk_common.skc_v6_daddr.in6_u.u6_addr8 };
-            let src_port =
-                u16::from_be(unsafe { sk_common.__bindgen_anon_3.__bindgen_anon_1.skc_num });
+            let src_port = unsafe { sk_common.__bindgen_anon_3.__bindgen_anon_1.skc_num };
             let dst_port =
                 u16::from_be(unsafe { sk_common.__bindgen_anon_3.__bindgen_anon_1.skc_dport });
             conn_info.sa_family = AF_INET6;
@@ -152,12 +157,6 @@ pub fn parse_sock_data(
             conn_info.dst_addr_in6 = dst_addr;
             conn_info.src_port = src_port as u32;
             conn_info.dst_port = dst_port as u32;
-            debug!(
-                ctx,
-                "AF_INET6 src address: {:i}, dest address: {:i}",
-                conn_info.src_addr_in6,
-                conn_info.dst_addr_in6,
-            )
         }
         _ => return Err(1),
     }
@@ -166,7 +165,7 @@ pub fn parse_sock_data(
 }
 
 pub fn parse_sockaddr_data(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     sockaddr: *const sockaddr,
     conn_info: &mut ConnInfo,
 ) -> Result<u32, i64> {
@@ -180,7 +179,7 @@ pub fn parse_sockaddr_data(
             conn_info.dst_port = u16::from_be(sa_in.sin_port) as u32;
             debug!(
                 ctx,
-                "AF_INET src address: {:i}, dest address: {:i}",
+                "parse_sockaddr_data AF_INET src address: {:i}, dest address: {:i}",
                 conn_info.src_addr_in4,
                 conn_info.dst_addr_in4,
             );
@@ -192,7 +191,7 @@ pub fn parse_sockaddr_data(
             conn_info.dst_port = u16::from_be(sa_in6.sin6_port) as u32;
             debug!(
                 ctx,
-                "AF_INET6 src address: {:i}, dest address: {:i}",
+                "parse_sockaddr_data AF_INET6 src address: {:i}, dest address: {:i}",
                 conn_info.src_addr_in6,
                 conn_info.dst_addr_in6,
             )
@@ -209,12 +208,15 @@ pub struct OpenEventArgs {
     pub tgid: u32,
     pub fd: i32,
     pub sockaddr: *const sockaddr,
-    pub sk: *const sock,
+    pub sk: *const socket,
     pub role: EndpointRole,
     pub source_fn: SourceFunction,
 }
 
-pub fn submit_open_event(ctx: &ProbeContext, args: &OpenEventArgs) -> Result<u32, i64> {
+pub fn init_and_insert_conn_info(
+    ctx: &TracePointContext,
+    args: &OpenEventArgs,
+) -> Result<u32, i64> {
     let mut conn_info = ConnInfo::default();
     init_conn_info(args.tgid, args.fd, &mut conn_info);
     conn_info.role = args.role;
@@ -229,35 +231,68 @@ pub fn submit_open_event(ctx: &ProbeContext, args: &OpenEventArgs) -> Result<u32
     unsafe {
         CONN_INFO_MAP.insert(&tgid_fd, &conn_info, 0)?;
     }
+
     if !should_trace_sockaddr_family(conn_info.sa_family) {
-        return Ok(0);
+        return Err(1);
     }
 
-    let socket_control_event = SocketControlEvent {
+    Ok(0)
+}
+
+pub fn output_socket_control_event(
+    ctx: &TracePointContext,
+    tgid_fd: u64,
+    source_function: SourceFunction,
+) -> Result<u32, i64> {
+    let conn_info = unsafe { CONN_INFO_MAP.get(&tgid_fd).ok_or(1i64)? };
+
+    let mut event = SocketControlEvent {
         id: conn_info.id,
         event_type: ControlEventType::Open,
         sa_family: conn_info.sa_family as u64,
-        source_function: args.source_fn,
+        source_function,
         timestamp_ns: unsafe { bpf_ktime_get_ns() },
         src_addr_in4: conn_info.src_addr_in4,
-        src_addr_in6: conn_info.src_addr_in6,
+        src_addr_in6: [0; 16],
         src_port: conn_info.src_port,
         dst_addr_in4: conn_info.dst_addr_in4,
-        dst_addr_in6: conn_info.dst_addr_in6,
+        dst_addr_in6: [0; 16],
         dst_port: conn_info.dst_port,
         role: conn_info.role,
-        write_bytes: 0,
-        read_bytes: 0,
+        write_bytes: conn_info.write_bytes,
+        read_bytes: conn_info.read_bytes,
     };
 
-    unsafe {
-        SOCKET_CONTROL_EVENTS.output(ctx, &socket_control_event, 0);
+    // Manually copy src_addr_in6
+    // Since the eBPF virtual machine does not support the memmove function,
+    // we need to manually copy each byte to avoid using memmove.
+    for i in 0..16 {
+        event.src_addr_in6[i] = conn_info.src_addr_in6[i];
     }
+
+    // Manually copy dst_addr_in6
+    // Similarly, manually copy each byte to ensure the program can load and
+    // run correctly in the eBPF virtual machine.
+    for i in 0..16 {
+        event.dst_addr_in6[i] = conn_info.dst_addr_in6[i];
+    }
+
+    unsafe {
+        SOCKET_CONTROL_EVENTS.output(ctx, &event, 0);
+    }
+
+    Ok(0)
+}
+
+pub fn submit_open_event(ctx: &TracePointContext, args: &OpenEventArgs) -> Result<u32, i64> {
+    init_and_insert_conn_info(ctx, args)?;
+    let tgid_fd = gen_tgid_fd(args.tgid, args.fd);
+    output_socket_control_event(ctx, tgid_fd, args.source_fn)?;
     Ok(0)
 }
 
 pub fn submit_close_event(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     conn_info: &ConnInfo,
     src_fn: SourceFunction,
 ) -> Result<u32, i64> {
@@ -285,7 +320,7 @@ pub fn submit_close_event(
 }
 
 pub fn perf_submit_buf(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     buf: *const u8,
     mut buf_size: usize,
     event: &mut SocketDataEvent,
@@ -305,14 +340,14 @@ pub fn perf_submit_buf(
     let msg = event.msg.as_mut();
     if buf_size_minus_1 < MAX_MSG_SIZE {
         unsafe {
-            bpf_probe_read_user_buf(buf, msg[..buf_size].as_mut())?;
+            bpf_probe_read_buf_with_size(msg, buf_size, buf)?;
         }
         amount_copied = buf_size;
     } else if buf_size_minus_1 < 0x7fffffff {
         // If-statement condition above is only required to prevent Rust compiler from optimizing
         // away the `if (amount_copied > 0)` below.
         unsafe {
-            bpf_probe_read_user_buf(buf, msg[..MAX_MSG_SIZE].as_mut())?;
+            bpf_probe_read_buf_with_size(msg, MAX_MSG_SIZE, buf)?;
         }
         amount_copied = MAX_MSG_SIZE;
     }
@@ -329,7 +364,7 @@ pub fn perf_submit_buf(
 }
 
 pub fn submit_data_event(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     buf: *const u8,
     buf_size: usize,
     event: &mut SocketDataEvent,
@@ -337,6 +372,9 @@ pub fn submit_data_event(
     let mut bytes_submitted: usize = 0;
     for i in 0..CHUNK_LIMIT {
         let bytes_remaining = buf_size - bytes_submitted;
+        if bytes_remaining <= 0 {
+            break;
+        }
         let current_size: usize = if bytes_remaining > MAX_MSG_SIZE && i != CHUNK_LIMIT - 1 {
             MAX_MSG_SIZE
         } else {
@@ -344,15 +382,16 @@ pub fn submit_data_event(
         };
         let current_buf = unsafe { buf.add(bytes_submitted) };
         perf_submit_buf(ctx, current_buf, current_size, event)?;
-
         bytes_submitted += current_size;
+
+        event.inner.position += current_size as u64;
     }
 
     Ok(0)
 }
 
 pub fn submit_data_event_iovecs(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     iov: *mut iovec,
     iovlen: u64,
     total_size: usize,
@@ -370,7 +409,7 @@ pub fn submit_data_event_iovecs(
         }
 
         let iov_ptr = unsafe { iov.add(i) };
-        let iov_cpy = unsafe { bpf_probe_read_kernel(iov_ptr as *const iovec)? };
+        let iov_cpy = unsafe { bpf_probe_read_user(iov_ptr as *const iovec)? };
         let bytes_remaining = total_size - bytes_sent;
         let iov_size = bytes_remaining.min(iov_cpy.iov_len as usize);
 
@@ -388,7 +427,7 @@ pub fn should_send_data(
     tgid: u32,
     conn_disabled_tsid: u64,
     force_trace_tgid: bool,
-    conn_info: ConnInfo,
+    conn_info: &ConnInfo,
 ) -> bool {
     if is_self_tgid(tgid) {
         return false;
@@ -402,7 +441,8 @@ pub fn should_send_data(
 }
 
 pub fn update_conn_stats(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
+    tgid_fd: u64,
     conn_info: &mut ConnInfo,
     direction: TrafficDirection,
     bytes_count: ssize_t,
@@ -421,12 +461,15 @@ pub fn update_conn_stats(
         total_bytes >= conn_info.prev_reported_bytes + CONN_STATS_DATA_THRESHOLD;
 
     if meets_activity_threshold {
-        let event = populate_conn_stats_event(*conn_info)?;
+        let event = populate_conn_stats_event(conn_info)?;
         unsafe {
-            CONN_STATS_EVENTS.output(ctx, &event, 0);
+            CONN_STATS_EVENTS.output(ctx, event, 0);
         }
         conn_info.prev_reported_bytes = total_bytes;
     }
+
+    unsafe { CONN_INFO_MAP.insert(&tgid_fd, conn_info, 0)? }
+
     Ok(0)
 }
 
@@ -439,7 +482,7 @@ pub struct ProcessDataArgs {
 }
 
 pub fn process_data(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     args: &types::DataArgs,
     extra_args: &ProcessDataArgs,
 ) -> Result<u32, i64> {
@@ -466,10 +509,7 @@ pub fn process_data(
         return Ok(0);
     }
 
-    let force_trace_tgid = match match_result {
-        TargetTgidMatchResult::Matched => true,
-        _ => false,
-    };
+    let force_trace_tgid = match_result == TargetTgidMatchResult::Matched;
 
     let mut conn_info = get_or_create_conn_info(tgid, args.fd)?;
     if !should_trace_conn(&conn_info) {
@@ -477,69 +517,59 @@ pub fn process_data(
     }
 
     let tgid_fd = gen_tgid_fd(tgid, args.fd);
-    let conn_disabled = unsafe { CONN_DISABLED_MAP.get(&tgid_fd) };
-    let conn_disabled_tsid = match conn_disabled {
-        Some(&tsid) => tsid,
-        None => 0,
-    };
+    let conn_disabled_tsid = unsafe { CONN_DISABLED_MAP.get(&tgid_fd).copied().unwrap_or(0) };
 
-    match extra_args.vecs {
-        true => {
-            for i in 0..PROTOCOL_VEC_LIMIT {
-                if i >= args.iovlen as usize {
-                    break;
-                }
-                let iov_ptr = unsafe { args.iov.add(i) };
-                let iov = match unsafe { bpf_probe_read_kernel(iov_ptr as *const iovec) } {
-                    Ok(iov) => iov,
-                    Err(err) => return Err(err as i64),
-                };
-                let buf_size = extra_args.bytes_count.min(iov.iov_len as ssize_t);
-                if buf_size != 0 {
-                    update_traffic_class(
-                        ctx,
-                        &mut conn_info,
-                        extra_args.direction,
-                        iov.iov_base as *const u8,
-                        buf_size as usize,
-                    )?;
-                    break;
-                }
+    if extra_args.vecs {
+        for i in 0..PROTOCOL_VEC_LIMIT {
+            if i >= args.iovlen as usize {
+                break;
+            }
+            let iov_ptr = unsafe { args.iov.add(0) };
+            let iov = unsafe { bpf_probe_read_user(iov_ptr as *const iovec) }
+                .map_err(|err| err as i64)?;
+            let buf_size = extra_args.bytes_count.min(iov.iov_len as ssize_t);
+            if buf_size != 0 {
+                update_traffic_class(
+                    ctx,
+                    tgid_fd,
+                    &mut conn_info,
+                    extra_args.direction,
+                    iov.iov_base as *const u8,
+                    buf_size as usize,
+                )?;
+                break;
             }
         }
-        false => {
-            update_traffic_class(
-                ctx,
-                &mut conn_info,
-                extra_args.direction,
-                args.buf,
-                extra_args.bytes_count as usize,
-            )?;
-        }
+    } else {
+        update_traffic_class(
+            ctx,
+            tgid_fd,
+            &mut conn_info,
+            extra_args.direction,
+            args.buf,
+            extra_args.bytes_count as usize,
+        )?;
     }
 
-    if should_send_data(tgid, conn_disabled_tsid, force_trace_tgid, conn_info) {
+    if should_send_data(tgid, conn_disabled_tsid, force_trace_tgid, &conn_info) {
         let event =
             populate_socket_data_event(args.source_function, extra_args.direction, &conn_info)?;
-        match extra_args.vecs {
-            true => {
-                submit_data_event_iovecs(
-                    ctx,
-                    args.iov,
-                    args.iovlen,
-                    extra_args.bytes_count as usize,
-                    event,
-                )?;
-            }
-            false => {
-                // TODO: handle bytes_count < 0
-                submit_data_event(ctx, args.buf, extra_args.bytes_count as usize, event)?;
-            }
+        if extra_args.vecs {
+            _ = submit_data_event_iovecs(
+                ctx,
+                args.iov,
+                args.iovlen,
+                extra_args.bytes_count as usize,
+                event,
+            );
+        } else {
+            _ = submit_data_event(ctx, args.buf, extra_args.bytes_count as usize, event);
         }
     }
 
     update_conn_stats(
         ctx,
+        tgid_fd,
         &mut conn_info,
         extra_args.direction,
         extra_args.bytes_count,
@@ -549,7 +579,7 @@ pub fn process_data(
 }
 
 pub fn process_syscall_data(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     pid_tgid: u64,
     direction: TrafficDirection,
     args: &types::DataArgs,
@@ -565,7 +595,7 @@ pub fn process_syscall_data(
 }
 
 pub fn process_syscall_data_vecs(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     pid_tgid: u64,
     direction: TrafficDirection,
     args: &types::DataArgs,
@@ -607,18 +637,18 @@ pub fn init_conn_info(tgid: u32, fd: i32, conn_info: &mut ConnInfo) {
 
 pub fn get_or_create_conn_info(tgid: u32, fd: i32) -> Result<ConnInfo, i64> {
     let tgid_fd = gen_tgid_fd(tgid, fd);
+    if let Some(&info) = unsafe { CONN_INFO_MAP.get(&tgid_fd) } {
+        return Ok(info);
+    }
+
     let mut conn_info = ConnInfo::default();
     init_conn_info(tgid, fd, &mut conn_info);
 
-    match unsafe { CONN_INFO_MAP.get(&tgid_fd) } {
-        Some(&info) => Ok(info),
-        None => {
-            unsafe {
-                CONN_INFO_MAP.insert(&tgid_fd, &conn_info, 0)?;
-            }
-            Ok(conn_info)
-        }
+    unsafe {
+        CONN_INFO_MAP.insert(&tgid_fd, &conn_info, 0)?;
     }
+
+    Ok(conn_info)
 }
 
 pub fn populate_socket_data_event(
@@ -627,8 +657,8 @@ pub fn populate_socket_data_event(
     conn_info: &ConnInfo,
 ) -> Result<&mut SocketDataEvent, i64> {
     let idx: u32 = 0;
-    let event_ptr = unsafe { SOCKET_DATA_EVENT_BUFFER.get_ptr_mut(idx).ok_or(1)? };
-    let event = unsafe { event_ptr.as_mut().ok_or(1)? };
+    let event_ptr = unsafe { SOCKET_DATA_EVENT_BUFFER.get_ptr_mut(idx).ok_or(1i64)? };
+    let event = unsafe { event_ptr.as_mut().ok_or(1i64)? };
     event.inner.timestamp_ns = unsafe { bpf_ktime_get_ns() };
     event.inner.source_function = src_fn;
     event.inner.direction = direction;
@@ -643,9 +673,10 @@ pub fn populate_socket_data_event(
     Ok(event)
 }
 
-pub fn populate_conn_stats_event(conn_info: ConnInfo) -> Result<ConnStatsEvent, i64> {
+pub fn populate_conn_stats_event(conn_info: &ConnInfo) -> Result<&mut ConnStatsEvent, i64> {
     let idx: u32 = 0;
-    let mut event = unsafe { *CONN_STATS_EVENT_BUFFER.get_ptr_mut(idx).ok_or(1)? };
+    let event_ptr = unsafe { CONN_STATS_EVENT_BUFFER.get_ptr_mut(idx).ok_or(1i64)? };
+    let event = unsafe { event_ptr.as_mut().ok_or(1i64)? };
 
     event.id = conn_info.id;
     event.src_addr_in4 = conn_info.src_addr_in4;
@@ -661,4 +692,42 @@ pub fn populate_conn_stats_event(conn_info: ConnInfo) -> Result<ConnStatsEvent, 
     event.timestamp_ns = unsafe { bpf_ktime_get_ns() };
 
     Ok(event)
+}
+
+pub fn process_implicit_conn(
+    ctx: &TracePointContext,
+    pid_tgid: u64,
+    connect_args: &ConnectArgs,
+    source_function: SourceFunction,
+) {
+    if connect_args.sockaddr.is_null() {
+        return;
+    }
+
+    let tgid = (pid_tgid >> 32) as u32;
+
+    if match_trace_tgid(tgid) == TargetTgidMatchResult::Unmatched {
+        return;
+    }
+
+    if connect_args.fd < 0 {
+        return;
+    }
+
+    let tgid_fd = gen_tgid_fd(tgid, connect_args.fd);
+
+    if unsafe { CONN_INFO_MAP.get(&tgid_fd) }.is_some() {
+        return;
+    }
+
+    let open_event_args = OpenEventArgs {
+        tgid,
+        fd: connect_args.fd,
+        sockaddr: connect_args.sockaddr,
+        sk: core::ptr::null(),
+        role: EndpointRole::Unknown,
+        source_fn: source_function,
+    };
+
+    _ = submit_open_event(ctx, &open_event_args);
 }

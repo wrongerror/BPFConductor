@@ -14,9 +14,9 @@ pub fn entry_security_socket_sendmsg(ctx: ProbeContext) -> u32 {
         .unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_entry_security_socket_sendmsg(ctx: ProbeContext) -> Result<u32, i64> {
+fn try_entry_security_socket_sendmsg(_ctx: ProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
-    let data_args = unsafe { ACTIVE_WRITE_MAP.get_ptr_mut(&pid_tgid).ok_or(1)? };
+    let data_args = unsafe { ACTIVE_WRITE_MAP.get_ptr_mut(&pid_tgid).ok_or(1i64)? };
 
     unsafe {
         (*data_args).sock_event = AlignedBool::True;
@@ -31,9 +31,9 @@ pub fn entry_security_socket_recvmsg(ctx: ProbeContext) -> u32 {
         .unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_entry_security_socket_recvmsg(ctx: ProbeContext) -> Result<u32, i64> {
+fn try_entry_security_socket_recvmsg(_ctx: ProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
-    let data_args = unsafe { ACTIVE_READ_MAP.get_ptr_mut(&pid_tgid).ok_or(1)? };
+    let data_args = unsafe { ACTIVE_READ_MAP.get_ptr_mut(&pid_tgid).ok_or(1i64)? };
 
     unsafe {
         (*data_args).sock_event = AlignedBool::True;

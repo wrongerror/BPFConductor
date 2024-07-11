@@ -7,6 +7,7 @@ edition = "2021"
 aya-ebpf = "0.1.0"
 aya-log-ebpf = "0.1.0"
 socket-tracer-common = { path = "../socket-tracer-common" }
+log = "0.4.22"
 
 [lib]
 name = "socket_tracer_lib"
@@ -36,10 +37,10 @@ path = "src/kprobes/close.rs"
 name = "socket-tracer-readv"
 path = "src/kprobes/readv.rs"
 
-[[bin]]
-name = "socket-tracer-recv"
-path = "src/kprobes/recv.rs"
-
+#[[bin]]
+#name = "socket-tracer-recv"
+#path = "src/kprobes/recv.rs"
+#
 [[bin]]
 name = "socket-tracer-recvfrom"
 path = "src/kprobes/recvfrom.rs"
@@ -52,9 +53,9 @@ path = "src/kprobes/recvmmsg.rs"
 name = "socket-tracer-recvmsg"
 path = "src/kprobes/recvmsg.rs"
 
-[[bin]]
-name = "socket-tracer-send"
-path = "src/kprobes/send.rs"
+#[[bin]]
+#name = "socket-tracer-send"
+#path = "src/kprobes/send.rs"
 
 [[bin]]
 name = "socket-tracer-sendfile"

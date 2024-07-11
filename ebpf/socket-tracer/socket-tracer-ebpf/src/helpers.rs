@@ -1,6 +1,6 @@
 // helper functions
 
-use core::{cell::UnsafeCell, marker::PhantomData, mem};
+use core::{cell::UnsafeCell, marker::PhantomData};
 
 use aya_ebpf::{
     bindings::{BPF_F_CURRENT_CPU, bpf_map_def, bpf_map_type::BPF_MAP_TYPE_PERF_EVENT_ARRAY},
@@ -40,8 +40,8 @@ impl<T> MyPerfEventArray<T> {
         MyPerfEventArray {
             def: UnsafeCell::new(bpf_map_def {
                 type_: BPF_MAP_TYPE_PERF_EVENT_ARRAY,
-                key_size: mem::size_of::<u32>() as u32,
-                value_size: mem::size_of::<u32>() as u32,
+                key_size: size_of::<u32>() as u32,
+                value_size: size_of::<u32>() as u32,
                 max_entries,
                 map_flags: flags,
                 id: 0,
@@ -55,8 +55,8 @@ impl<T> MyPerfEventArray<T> {
         MyPerfEventArray {
             def: UnsafeCell::new(bpf_map_def {
                 type_: BPF_MAP_TYPE_PERF_EVENT_ARRAY,
-                key_size: mem::size_of::<u32>() as u32,
-                value_size: mem::size_of::<u32>() as u32,
+                key_size: size_of::<u32>() as u32,
+                value_size: size_of::<u32>() as u32,
                 max_entries,
                 map_flags: flags,
                 id: 0,
@@ -110,9 +110,9 @@ impl<T> MyPerfEventArray<T> {
 
 #[inline]
 pub unsafe fn bpf_probe_read_buf_with_size(
-    src: *const u8,
     dst: &mut [u8],
     size: usize,
+    src: *const u8,
 ) -> Result<(), c_long> {
     let read_size = core::cmp::min(size, dst.len());
     let ret = bpf_probe_read(
@@ -140,12 +140,12 @@ pub fn get_tgid_start_time() -> Result<u64, i32> {
     }
 
     let group_leader: *const task_struct = unsafe {
-        bpf_probe_read_kernel(&(*task).group_leader as *const _ as *const u64).map_err(|_| 1)?
+        bpf_probe_read_kernel(&(*task).group_leader as *const _ as *const u64).map_err(|_| 1i32)?
             as *const task_struct
     };
 
     let start_boottime = unsafe {
-        bpf_probe_read_kernel(&(*group_leader).start_boottime as *const u64).map_err(|_| 1)?
+        bpf_probe_read_kernel(&(*group_leader).start_boottime as *const u64).map_err(|_| 1i32)?
     };
 
     Ok(pl_nsec_to_clock_t(start_boottime))

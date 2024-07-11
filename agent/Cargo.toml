@@ -26,6 +26,7 @@ clap = { workspace = true, features = [
     "usage",
 ] }
 conn-tracer-common = { path = "../ebpf/conn-tracer/conn-tracer-common", features = ["user"] }
+socket-tracer-common = { path = "../ebpf/socket-tracer/socket-tracer-common", features = ["user"] }
 env_logger = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }

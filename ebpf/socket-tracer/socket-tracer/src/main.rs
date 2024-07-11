@@ -1,3 +1,4 @@
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 use std::ptr;
 use std::sync::Arc;
@@ -9,7 +10,9 @@ use log::{debug, info};
 use tokio::signal;
 use tokio::sync::Notify;
 
-use socket_tracer_common::{ConnStatsEvent, SocketControlEvent, SocketDataEvent};
+use socket_tracer_common::{
+    ConnStatsEvent, SocketControlEvent, SocketDataEvent, SourceFunction, TrafficProtocol,
+};
 
 mod accept;
 mod accept4;
@@ -21,13 +24,14 @@ mod recv;
 mod recvfrom;
 mod recvmmsg;
 mod recvmsg;
+mod sec_msg;
 mod send;
 mod sendfile;
 mod sendmmsg;
 mod sendmsg;
 mod sendto;
+mod sock_msg;
 mod sockalloc;
-mod ssendmsg;
 mod write;
 mod writev;
 
@@ -104,10 +108,10 @@ async fn main() -> Result<(), anyhow::Error> {
         close::run(notify_close).await.unwrap();
     });
 
-    let notify_send = notify.clone();
-    tokio::spawn(async move {
-        send::run(notify_send).await.unwrap();
-    });
+    // let notify_send = notify.clone();
+    // tokio::spawn(async move {
+    //     send::run(notify_send).await.unwrap();
+    // });
 
     let notify_sendto = notify.clone();
     tokio::spawn(async move {
@@ -129,15 +133,20 @@ async fn main() -> Result<(), anyhow::Error> {
         sendfile::run(notify_sendfile).await.unwrap();
     });
 
-    let notify_ssendmsg = notify.clone();
+    let notify_sec_msg = notify.clone();
     tokio::spawn(async move {
-        ssendmsg::run(notify_ssendmsg).await.unwrap();
+        sec_msg::run(notify_sec_msg).await.unwrap();
     });
 
-    let notify_recv = notify.clone();
+    let notify_sock_msg = notify.clone();
     tokio::spawn(async move {
-        recv::run(notify_recv).await.unwrap();
+        sock_msg::run(notify_sock_msg).await.unwrap();
     });
+
+    // let notify_recv = notify.clone();
+    // tokio::spawn(async move {
+    //     recv::run(notify_recv).await.unwrap();
+    // });
 
     let notify_recvfrom = notify.clone();
     tokio::spawn(async move {
@@ -179,14 +188,14 @@ async fn main() -> Result<(), anyhow::Error> {
         sockalloc::run(notify_sockalloc).await.unwrap();
     });
 
-    let bpf_map_path = std::path::Path::new(BPF_MAP_PATH);
+    let bpf_map_path = Path::new(BPF_MAP_PATH);
 
     // handle sk_ctrl_events
     let sk_ctrl_events_map_path = bpf_map_path.join("sk_ctrl_events");
     process_perf_events(
         &sk_ctrl_events_map_path,
         Arc::new(|event: &SocketControlEvent| {
-            info!("sk_ctrl_event id: {:?}", event.id);
+            log_socket_control_event(event);
         }),
     )
     .await?;
@@ -196,7 +205,7 @@ async fn main() -> Result<(), anyhow::Error> {
     process_perf_events(
         &conn_stat_events_map_path,
         Arc::new(|event: &ConnStatsEvent| {
-            info!("conn_stat_event id: {:?}", event.id);
+            // log_conn_stats_event(event);
         }),
     )
     .await?;
@@ -206,12 +215,7 @@ async fn main() -> Result<(), anyhow::Error> {
     process_perf_events(
         &sk_data_events_map_path,
         Arc::new(|event: &SocketDataEvent| {
-            info!("sk_data_event uid: {:?}", event.inner.id);
-            let msg_str = String::from_utf8_lossy(&event.msg[..48]);
-            info!(
-                "sk_data_event source function: {:?}, msg : {:?}",
-                event.inner.source_function, msg_str
-            );
+            log_socket_data_event(event);
         }),
     )
     .await?;
@@ -223,4 +227,124 @@ async fn main() -> Result<(), anyhow::Error> {
     notify.notify_one();
 
     Ok(())
+}
+
+fn log_socket_control_event(event: &SocketControlEvent) {
+    match event.sa_family {
+        2 => {
+            info!(
+                "SocketControlEvent: tgid {:?}, event type {:?}, role {:?}, sa_family: {:?}, local addr {:?}:{:?}, remote addr {:?}:{:?}, source func {:?}, read_bytes {:?}, write_bytes {:?}",
+                event.id.uid.tgid,
+                event.event_type,
+                event.role,
+                event.sa_family,
+                Ipv4Addr::from(event.src_addr_in4),
+                event.src_port,
+                Ipv4Addr::from(event.dst_addr_in4),
+                event.dst_port,
+                event.source_function,
+                event.read_bytes,
+                event.write_bytes
+            );
+        }
+        10 => {
+            let src_addr = Ipv6Addr::from(event.src_addr_in6);
+            let dst_addr = Ipv6Addr::from(event.dst_addr_in6);
+            info!(
+                "SocketControlEvent: tgid {:?}, event type {:?}, role {:?}, sa_family: {:?}, local addr {:?}:{:?}, remote addr {:?}:{:?}, source func {:?}, read_bytes {:?}, write_bytes {:?}",
+                event.id.uid.tgid,
+                event.event_type,
+                event.role,
+                event.sa_family,
+                src_addr,
+                event.src_port,
+                dst_addr,
+                event.dst_port,
+                event.source_function,
+                event.read_bytes,
+                event.write_bytes
+            );
+        }
+        _ => {
+            info!(
+                "SocketControlEvent: tgid {:?}, event type {:?}, role {:?}, sa_family: {:?}, source func {:?}, read_bytes {:?}, write_bytes {:?}",
+                event.id.uid.tgid,
+                event.event_type,
+                event.role,
+                event.sa_family,
+                event.source_function,
+                event.read_bytes,
+                event.write_bytes
+            );
+        }
+    }
+}
+
+fn log_conn_stats_event(event: &ConnStatsEvent) {
+    match event.sa_family {
+        2 => {
+            info!(
+                "ConnStatsEvent: tgid {:?}, role {:?}, sa_family: {:?}, local addr {:?}:{:?}, remote addr {:?}:{:?}, read_bytes {:?}, write_bytes {:?}",
+                event.id.uid.tgid,
+                event.role,
+                event.sa_family,
+                Ipv4Addr::from(event.src_addr_in4),
+                event.src_port,
+                Ipv4Addr::from(event.dst_addr_in4),
+                event.dst_port,
+                event.read_bytes,
+                event.write_bytes
+            );
+        }
+        10 => {
+            let src_addr = Ipv6Addr::from(event.src_addr_in6);
+            let dst_addr = Ipv6Addr::from(event.dst_addr_in6);
+            info!(
+                "ConnStatsEvent: tgid {:?}, role {:?}, sa_family: {:?}, local addr {:?}:{:?}, remote addr {:?}:{:?}, read_bytes {:?}, write_bytes {:?}",
+                event.id.uid.tgid,
+                event.role,
+                event.sa_family,
+                src_addr,
+                event.src_port,
+                dst_addr,
+                event.dst_port,
+                event.read_bytes,
+                event.write_bytes
+            );
+        }
+        _ => {
+            info!(
+                "ConnStatsEvent: tgid {:?}, role {:?}, sa_family: {:?}, read_bytes {:?}, write_bytes {:?}",
+                event.id.uid.tgid,
+                event.role,
+                event.sa_family,
+                event.read_bytes,
+                event.write_bytes
+            );
+        }
+    }
+}
+
+fn log_socket_data_event(event: &SocketDataEvent) {
+    match event.inner.protocol {
+        TrafficProtocol::HTTP => {
+            let msg_str = String::from_utf8_lossy(&event.msg[..event.inner.msg_size as usize]);
+            let truncated_msg = if msg_str.len() > 100 {
+                let boundary = msg_str
+                    .char_indices()
+                    .nth(100)
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(msg_str.len());
+                format!("{}...", &msg_str[..boundary])
+            } else {
+                msg_str.to_string()
+            };
+
+            info!(
+                "SocketDataEvent tgid: {:?}, source function: {:?}, msg: {:?}",
+                event.inner.id.uid.tgid, event.inner.source_function, truncated_msg,
+            );
+        }
+        _ => {}
+    }
 }

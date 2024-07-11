@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use crate::common::types::ListFilter;
-use agent_api::ProgramType;
 use ahash::AHashMap;
 use parking_lot::RwLock;
 
+use agent_api::ProgramType;
+
+use crate::common::types::ListFilter;
 use crate::progs::service_map::program::ServiceMap;
+use crate::progs::socket_tracer::program::SocketTracer;
 use crate::progs::types::Program;
 
 #[derive(Debug, Clone)]
@@ -24,6 +26,7 @@ impl BuiltinRegistry {
     pub fn register_builtin_progs(&self) {
         let mut inner = self.inner.write();
         inner.insert("service_map".to_string(), Arc::new(ServiceMap::new()));
+        inner.insert("socket_tracer".to_string(), Arc::new(SocketTracer::new()));
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Program>> {

@@ -2,29 +2,31 @@
 #![no_main]
 
 use aya_ebpf::{
-    cty::ssize_t,
-    helpers::bpf_get_current_pid_tgid,
-    macros::{kprobe, kretprobe},
-    programs::ProbeContext,
+    cty::ssize_t, helpers::bpf_get_current_pid_tgid, macros::tracepoint,
+    programs::TracePointContext,
 };
 
 use socket_tracer_common::{SourceFunction, TrafficDirection::Egress};
 use socket_tracer_lib::{
     maps::{ACTIVE_CONNECT_MAP, ACTIVE_WRITE_MAP},
-    process_syscall_data, types,
+    process_implicit_conn, process_syscall_data, types,
     types::AlignedBool,
     vmlinux::sockaddr,
 };
 
-#[kprobe]
-pub fn entry_sendto(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn entry_sendto(ctx: TracePointContext) -> u32 {
     try_entry_sendto(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_entry_sendto(ctx: ProbeContext) -> Result<u32, i64> {
-    let fd: i32 = ctx.arg(0).ok_or(1)?;
-    let buf: *const u8 = ctx.arg(1).ok_or(1)?;
-    let dest_addr: *const sockaddr = ctx.arg(4).ok_or(1)?;
+pub const SENDTO_FD_OFFSET: usize = 16;
+pub const SENDTO_BUF_OFFSET: usize = 24;
+pub const SENDTO_ADDR_OFFSET: usize = 48;
+
+fn try_entry_sendto(ctx: TracePointContext) -> Result<u32, i64> {
+    let fd: i32 = unsafe { ctx.read_at(SENDTO_FD_OFFSET)? };
+    let buf: *const u8 = unsafe { ctx.read_at(SENDTO_BUF_OFFSET)? };
+    let dest_addr: *const sockaddr = unsafe { ctx.read_at(SENDTO_ADDR_OFFSET)? };
     let pid_tgid = bpf_get_current_pid_tgid();
 
     if !dest_addr.is_null() {
@@ -38,7 +40,6 @@ fn try_entry_sendto(ctx: ProbeContext) -> Result<u32, i64> {
         }
     }
 
-    let pid_tgid = bpf_get_current_pid_tgid();
     let data_args = types::DataArgs {
         source_function: SourceFunction::SyscallSendTo,
         sock_event: AlignedBool::False,
@@ -56,24 +57,27 @@ fn try_entry_sendto(ctx: ProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-#[kretprobe]
-pub fn ret_sendto(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn ret_sendto(ctx: TracePointContext) -> u32 {
     try_ret_sendto(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_ret_sendto(ctx: ProbeContext) -> Result<u32, i64> {
+pub const SENDTO_RET_OFFSET: usize = 16;
+
+fn try_ret_sendto(ctx: TracePointContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
-    let bytes_count: ssize_t = ctx.ret().ok_or(1)?;
+    let bytes_count: ssize_t = unsafe { ctx.read_at(SENDTO_RET_OFFSET)? };
 
-    let connect_args = unsafe { ACTIVE_CONNECT_MAP.get(&pid_tgid) };
-    if connect_args.is_some() && bytes_count > 0 {
-        // TODO: Handle implicit conn
-    }
-    unsafe {
-        ACTIVE_CONNECT_MAP.remove(&pid_tgid)?;
+    if let Some(connect_args) = unsafe { ACTIVE_CONNECT_MAP.get(&pid_tgid) } {
+        if bytes_count > 0 {
+            process_implicit_conn(&ctx, pid_tgid, connect_args, SourceFunction::SyscallSendTo);
+        }
+        unsafe {
+            ACTIVE_CONNECT_MAP.remove(&pid_tgid)?;
+        }
     }
 
-    let data_args = unsafe { ACTIVE_WRITE_MAP.get(&pid_tgid).ok_or(1)? };
+    let data_args = unsafe { ACTIVE_WRITE_MAP.get(&pid_tgid).ok_or(1i64)? };
     let res = process_syscall_data(&ctx, pid_tgid, Egress, data_args, bytes_count);
 
     unsafe {

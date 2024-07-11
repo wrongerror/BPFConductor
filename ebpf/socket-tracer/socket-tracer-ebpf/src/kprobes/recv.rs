@@ -17,8 +17,8 @@ pub fn entry_recv(ctx: ProbeContext) -> u32 {
 }
 
 fn try_entry_recv(ctx: ProbeContext) -> Result<u32, i64> {
-    let fd: i32 = ctx.arg(0).ok_or(1)?;
-    let buf: *const u8 = ctx.arg(1).ok_or(1)?;
+    let fd: i32 = ctx.arg(0).ok_or(1i64)?;
+    let buf: *const u8 = ctx.arg(1).ok_or(1i64)?;
 
     let pid_tgid = bpf_get_current_pid_tgid();
     let data_args = types::DataArgs {
@@ -45,9 +45,9 @@ pub fn ret_recv(ctx: ProbeContext) -> u32 {
 
 fn try_ret_recv(ctx: ProbeContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
-    let bytes_count: ssize_t = ctx.ret().ok_or(1)?;
+    let bytes_count: ssize_t = ctx.ret().ok_or(1i64)?;
 
-    let data_args = unsafe { ACTIVE_READ_MAP.get(&pid_tgid).ok_or(1)? };
+    let data_args = unsafe { ACTIVE_READ_MAP.get(&pid_tgid).ok_or(1i64)? };
     let res = process_syscall_data(&ctx, pid_tgid, Ingress, data_args, bytes_count);
 
     unsafe {

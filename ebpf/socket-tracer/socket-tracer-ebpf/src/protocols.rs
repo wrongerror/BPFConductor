@@ -1,6 +1,8 @@
-use aya_ebpf::helpers::bpf_probe_read_user_buf;
+use aya_ebpf::programs::TracePointContext;
 
 use socket_tracer_common::{MessageType, ProtocolMessage, TrafficProtocol};
+
+use crate::helpers::bpf_probe_read_buf_with_size;
 
 fn infer_http_message(buf: &[u8], count: usize) -> MessageType {
     if count < 16 {
@@ -20,7 +22,7 @@ fn infer_http_message(buf: &[u8], count: usize) -> MessageType {
     MessageType::Unknown
 }
 
-pub fn infer_protocol(buf: *const u8, count: usize) -> ProtocolMessage {
+pub fn infer_protocol(_ctx: &TracePointContext, buf: *const u8, count: usize) -> ProtocolMessage {
     let mut inferred_message = ProtocolMessage {
         protocol: TrafficProtocol::Unknown,
         msg_type: MessageType::Unknown,
@@ -30,14 +32,14 @@ pub fn infer_protocol(buf: *const u8, count: usize) -> ProtocolMessage {
         return inferred_message;
     }
 
-    let mut kernel_buf = [0u8; 16];
-    let read_len = count.min(kernel_buf.len());
+    let mut buffer = [0u8; 16];
+    let read_len = count.min(buffer.len());
 
-    if unsafe { bpf_probe_read_user_buf(buf, &mut kernel_buf[..read_len]) }.is_err() {
+    if unsafe { bpf_probe_read_buf_with_size(buffer.as_mut(), read_len, buf) }.is_err() {
         return inferred_message;
     }
 
-    let buf = &kernel_buf[..read_len];
+    let buf = &buffer[..read_len];
     match infer_http_message(buf, count) {
         MessageType::Unknown => {}
         msg_type => {

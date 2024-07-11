@@ -2,9 +2,7 @@
 #![no_main]
 
 use aya_ebpf::{
-    helpers::bpf_get_current_pid_tgid,
-    macros::{kprobe, kretprobe},
-    programs::ProbeContext,
+    helpers::bpf_get_current_pid_tgid, macros::tracepoint, programs::TracePointContext,
 };
 
 use socket_tracer_common::{EndpointRole, SourceFunction};
@@ -13,13 +11,15 @@ use socket_tracer_lib::{
     vmlinux::sockaddr,
 };
 
-#[kprobe]
-pub fn entry_accept(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn entry_accept(ctx: TracePointContext) -> u32 {
     try_entry_accept(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_entry_accept(ctx: ProbeContext) -> Result<u32, i64> {
-    let sockaddr: *const sockaddr = ctx.arg(1).ok_or(1)?;
+pub const ACCEPT_SOCKADDR_OFFSET: usize = 24;
+
+fn try_entry_accept(ctx: TracePointContext) -> Result<u32, i64> {
+    let sockaddr: *const sockaddr = unsafe { ctx.read_at(ACCEPT_SOCKADDR_OFFSET)? };
     let pid_tgid = bpf_get_current_pid_tgid();
 
     let accept_args = types::AcceptArgs {
@@ -34,14 +34,15 @@ fn try_entry_accept(ctx: ProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-#[kretprobe]
-pub fn ret_accept(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn ret_accept(ctx: TracePointContext) -> u32 {
     try_ret_accept(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_ret_accept(ctx: ProbeContext) -> Result<u32, i64> {
+pub const ACCEPT_RET_OFFSET: usize = 16;
+fn try_ret_accept(ctx: TracePointContext) -> Result<u32, i64> {
     let pid_tgid = bpf_get_current_pid_tgid();
-    let accept_args = unsafe { ACTIVE_ACCEPT_MAP.get(&pid_tgid).ok_or(1)? };
+    let accept_args = unsafe { ACTIVE_ACCEPT_MAP.get(&pid_tgid).ok_or(1i64)? };
     let res = process_syscall_accept(&ctx, pid_tgid, accept_args);
 
     unsafe {
@@ -52,12 +53,12 @@ fn try_ret_accept(ctx: ProbeContext) -> Result<u32, i64> {
 }
 
 fn process_syscall_accept(
-    ctx: &ProbeContext,
+    ctx: &TracePointContext,
     pid_tgid: u64,
     args: &types::AcceptArgs,
 ) -> Result<u32, i64> {
     let tgid: u32 = (pid_tgid >> 32) as u32;
-    let ret_fd: i32 = ctx.ret().ok_or(1u32)?;
+    let ret_fd: i32 = unsafe { ctx.read_at(ACCEPT_RET_OFFSET)? };
 
     if match_trace_tgid(tgid) == TargetTgidMatchResult::Unmatched {
         return Ok(0);

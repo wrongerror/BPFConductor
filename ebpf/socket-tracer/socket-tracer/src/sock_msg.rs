@@ -20,8 +20,8 @@ pub async fn run(notify: Arc<Notify>) -> anyhow::Result<()> {
     }
 
     let programs = vec![
-        ("entry_security_socket_sendmsg", "security_socket_sendmsg"),
-        ("entry_security_socket_recvmsg", "security_socket_sendmsg"),
+        ("entry_security_socket_sendmsg", "sock_sendmsg"),
+        ("entry_security_socket_recvmsg", "sock_recvmsg"),
     ];
 
     for (prog_name, func_name) in programs {

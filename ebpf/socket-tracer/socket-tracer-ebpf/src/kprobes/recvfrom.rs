@@ -2,23 +2,28 @@
 #![no_main]
 
 use aya_ebpf::{
-    cty::ssize_t,
-    helpers::bpf_get_current_pid_tgid,
-    macros::{kprobe, kretprobe},
-    programs::ProbeContext,
+    cty::ssize_t, helpers::bpf_get_current_pid_tgid, macros::tracepoint,
+    programs::TracePointContext,
 };
 
 use socket_tracer_common::{SourceFunction, TrafficDirection::Ingress};
-use socket_tracer_lib::{maps::ACTIVE_READ_MAP, process_syscall_data, types, types::AlignedBool};
+use socket_tracer_lib::{
+    maps::{ACTIVE_CONNECT_MAP, ACTIVE_READ_MAP},
+    process_implicit_conn, process_syscall_data, types,
+    types::AlignedBool,
+};
 
-#[kprobe]
-pub fn entry_recvfrom(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn entry_recvfrom(ctx: TracePointContext) -> u32 {
     try_entry_recvfrom(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_entry_recvfrom(ctx: ProbeContext) -> Result<u32, i64> {
-    let fd: i32 = ctx.arg(0).ok_or(1)?;
-    let buf: *const u8 = ctx.arg(1).ok_or(1)?;
+pub const RECVFROM_FD_OFFSET: usize = 16;
+pub const RECVFROM_BUF_OFFSET: usize = 24;
+
+fn try_entry_recvfrom(ctx: TracePointContext) -> Result<u32, i64> {
+    let fd: i32 = unsafe { ctx.read_at(RECVFROM_FD_OFFSET)? };
+    let buf: *const u8 = unsafe { ctx.read_at(RECVFROM_BUF_OFFSET)? };
 
     let pid_tgid = bpf_get_current_pid_tgid();
     let data_args = types::DataArgs {
@@ -38,23 +43,39 @@ fn try_entry_recvfrom(ctx: ProbeContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-#[kretprobe]
-pub fn ret_recvfrom(ctx: ProbeContext) -> u32 {
+#[tracepoint]
+pub fn ret_recvfrom(ctx: TracePointContext) -> u32 {
     try_ret_recvfrom(ctx).unwrap_or_else(|ret| ret.try_into().unwrap_or_else(|_| 1))
 }
 
-fn try_ret_recvfrom(ctx: ProbeContext) -> Result<u32, i64> {
-    let pid_tgid = bpf_get_current_pid_tgid();
-    let bytes_count: ssize_t = ctx.ret().ok_or(1)?;
+pub const RECVFROM_RET_OFFSET: usize = 16;
 
-    let data_args = unsafe { ACTIVE_READ_MAP.get(&pid_tgid).ok_or(1)? };
-    process_syscall_data(&ctx, pid_tgid, Ingress, data_args, bytes_count)?;
+fn try_ret_recvfrom(ctx: TracePointContext) -> Result<u32, i64> {
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let bytes_count: ssize_t = unsafe { ctx.read_at(RECVFROM_RET_OFFSET)? };
+
+    if let Some(connect_args) = unsafe { ACTIVE_CONNECT_MAP.get(&pid_tgid) } {
+        if bytes_count > 0 {
+            process_implicit_conn(
+                &ctx,
+                pid_tgid,
+                connect_args,
+                SourceFunction::SyscallRecvFrom,
+            );
+        }
+        unsafe {
+            ACTIVE_CONNECT_MAP.remove(&pid_tgid)?;
+        }
+    }
+
+    let data_args = unsafe { ACTIVE_READ_MAP.get(&pid_tgid).ok_or(1i64)? };
+    let res = process_syscall_data(&ctx, pid_tgid, Ingress, data_args, bytes_count);
 
     unsafe {
         ACTIVE_READ_MAP.remove(&pid_tgid)?;
     }
 
-    Ok(0)
+    res
 }
 
 #[panic_handler]
